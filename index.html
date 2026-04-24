@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CRM AXIS 1</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">AXIS 1</p>
+      <h1>CRM de Clientes</h1>
+      <p class="subtitle">Controle simples de clientes, planos, vencimentos e status.</p>
+    </div>
+    <button id="exportBtn" class="secondary">Exportar backup</button>
+  </header>
+
+  <main class="container">
+    <section id="billingAlerts" class="billing-alerts"></section>
+    <section class="panel form-panel">
+      <div class="panel-title">
+        <h2 id="formTitle">Adicionar cliente</h2>
+        <button id="resetBtn" class="ghost" type="button">Limpar</button>
+      </div>
+
+      <form id="clientForm">
+        <input type="hidden" id="clientId" />
+
+        <div class="grid">
+          <label>Nome/Razão Social
+            <input id="nome" type="text" placeholder="Ex: Quinta da Garrafeira" required />
+          </label>
+
+          <label>Plano
+            <select id="plano" required>
+              <option value="">Selecione</option>
+              <option value="Essencial" data-valor="399.90">Essencial — R$ 399,90</option>
+              <option value="Estratégico" data-valor="549.90">Estratégico — R$ 549,90</option>
+              <option value="Autoridade" data-valor="969.90">Autoridade — R$ 969,90</option>
+              <option value="Autoridade + Landing Page" data-valor="1119.99">Autoridade + Landing Page — R$ 1.119,99</option>
+              <option value="Autoridade + Site" data-valor="1219.90">Autoridade + Site — R$ 1.219,90</option>
+              <option value="Personalizado" data-valor="0">Personalizado</option>
+            </select>
+          </label>
+
+          <label>Valor mensal
+            <input id="valor" type="text" placeholder="R$ 0,00" required />
+          </label>
+
+          <label>Status
+            <select id="status" required>
+              <option value="Ativo">Ativo</option>
+              <option value="Pausado">Pausado</option>
+              <option value="Cancelado">Cancelado</option>
+              <option value="Pendente">Pendente</option>
+            </select>
+          </label>
+
+          <label>Data de início
+            <input id="inicio" type="date" required />
+          </label>
+
+          <label>Próximo vencimento
+            <input id="vencimento" type="date" required />
+          </label>
+
+          <label>WhatsApp
+            <input id="whatsapp" type="text" placeholder="(16) 99999-9999" />
+          </label>
+
+          <label>E-mail
+            <input id="email" type="email" placeholder="cliente@email.com" />
+          </label>
+        </div>
+
+        <label>Observações
+          <textarea id="observacoes" rows="3" placeholder="Ex: pagamento em 2x combinado, cliente veio por indicação..."></textarea>
+        </label>
+
+        <button class="primary" type="submit">Salvar cliente</button>
+      </form>
+    </section>
+
+    <section class="stats">
+      <article class="stat-card"><span>Clientes ativos</span><strong id="ativosCount">0</strong></article>
+      <article class="stat-card"><span>Receita ativa/mês</span><strong id="receitaAtiva">R$ 0,00</strong></article>
+      <article class="stat-card"><span>Vencem em 7 dias</span><strong id="vencemLogo">0</strong></article>
+    </section>
+
+    <section class="panel">
+      <div class="toolbar">
+        <input id="searchInput" type="search" placeholder="Buscar cliente..." />
+        <select id="statusFilter">
+          <option value="Todos">Todos os status</option>
+          <option value="Ativo">Ativo</option>
+          <option value="Pausado">Pausado</option>
+          <option value="Cancelado">Cancelado</option>
+          <option value="Pendente">Pendente</option>
+        </select>
+        <input id="importFile" type="file" accept="application/json" hidden />
+        <button id="importBtn" class="secondary" type="button">Importar backup</button>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Cliente</th>
+              <th>Plano</th>
+              <th>Valor</th>
+              <th>Status</th>
+              <th>Início</th>
+              <th>Vencimento</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="clientsTable"></tbody>
+        </table>
+      </div>
+      <p id="emptyState" class="empty">Nenhum cliente cadastrado ainda.</p>
+    </section>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
