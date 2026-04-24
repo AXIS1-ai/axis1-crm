@@ -1,38 +1,50 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CRM AXIS 1</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CRM AXIS 1 | Leads, Clientes e Cobrança</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <header class="topbar">
+  <header class="hero">
     <div>
-      <p class="eyebrow">AXIS 1</p>
-      <h1>CRM de Clientes</h1>
-      <p class="subtitle">Controle simples de clientes, planos, vencimentos e status.</p>
+      <p class="eyebrow">AXIS 1 • CRM OPERACIONAL</p>
+      <h1>Leads, clientes e cobrança em um só lugar</h1>
+      <p>Controle seu funil, acompanhe follow-ups e cobre vencimentos com mensagens prontas no WhatsApp.</p>
     </div>
-    <button id="exportBtn" class="secondary">Exportar backup</button>
+    <div class="stats">
+      <div><span id="totalLeads">0</span><small>Leads</small></div>
+      <div><span id="totalAtivos">0</span><small>Ativos</small></div>
+      <div><span id="receitaMensal">R$ 0,00</span><small>Receita ativa</small></div>
+    </div>
   </header>
 
   <main class="container">
-    <section id="billingAlerts" class="billing-alerts"></section>
+    <section class="panel alerts">
+      <h2>Alertas inteligentes</h2>
+      <div id="alertsBox" class="alerts-box empty">Nenhum alerta pendente por enquanto.</div>
+    </section>
+
     <section class="panel form-panel">
-      <div class="panel-title">
-        <h2 id="formTitle">Adicionar cliente</h2>
-        <button id="resetBtn" class="ghost" type="button">Limpar</button>
+      <div class="panel-head">
+        <h2 id="formTitle">Adicionar lead/cliente</h2>
+        <button id="clearForm" type="button" class="ghost">Limpar</button>
       </div>
 
-      <form id="clientForm">
-        <input type="hidden" id="clientId" />
-
+      <form id="crmForm">
+        <input type="hidden" id="editId" />
         <div class="grid">
-          <label>Nome/Razão Social
-            <input id="nome" type="text" placeholder="Ex: Quinta da Garrafeira" required />
+          <label>Nome/Razão social
+            <input id="nome" required placeholder="Ex: Clínica Bella Face" />
           </label>
-
-          <label>Plano
+          <label>WhatsApp
+            <input id="whatsapp" required placeholder="(16) 99999-9999" />
+          </label>
+          <label>E-mail
+            <input id="email" type="email" placeholder="cliente@email.com" />
+          </label>
+          <label>Plano de interesse/contratado
             <select id="plano" required>
               <option value="">Selecione</option>
               <option value="Essencial" data-valor="399.90">Essencial — R$ 399,90</option>
@@ -43,82 +55,67 @@
               <option value="Personalizado" data-valor="0">Personalizado</option>
             </select>
           </label>
-
           <label>Valor mensal
-            <input id="valor" type="text" placeholder="R$ 0,00" required />
+            <input id="valor" inputmode="decimal" placeholder="R$ 0,00" />
           </label>
-
           <label>Status
             <select id="status" required>
+              <option value="Lead">Lead</option>
               <option value="Ativo">Ativo</option>
               <option value="Pausado">Pausado</option>
               <option value="Cancelado">Cancelado</option>
-              <option value="Pendente">Pendente</option>
             </select>
           </label>
-
-          <label>Data de início
-            <input id="inicio" type="date" required />
+          <label>Data do primeiro contato
+            <input id="primeiroContato" type="date" />
           </label>
-
+          <label>Data de início do cliente
+            <input id="dataInicio" type="date" />
+          </label>
           <label>Próximo vencimento
-            <input id="vencimento" type="date" required />
+            <input id="vencimento" type="date" />
           </label>
-
-          <label>WhatsApp
-            <input id="whatsapp" type="text" placeholder="(16) 99999-9999" />
-          </label>
-
-          <label>E-mail
-            <input id="email" type="email" placeholder="cliente@email.com" />
+          <label class="wide">Observações
+            <textarea id="observacoes" rows="3" placeholder="Ex: cliente pediu retorno sexta-feira, prefere plano Estratégico..."></textarea>
           </label>
         </div>
-
-        <label>Observações
-          <textarea id="observacoes" rows="3" placeholder="Ex: pagamento em 2x combinado, cliente veio por indicação..."></textarea>
-        </label>
-
-        <button class="primary" type="submit">Salvar cliente</button>
+        <button class="primary" type="submit">Salvar no CRM</button>
       </form>
     </section>
 
-    <section class="stats">
-      <article class="stat-card"><span>Clientes ativos</span><strong id="ativosCount">0</strong></article>
-      <article class="stat-card"><span>Receita ativa/mês</span><strong id="receitaAtiva">R$ 0,00</strong></article>
-      <article class="stat-card"><span>Vencem em 7 dias</span><strong id="vencemLogo">0</strong></article>
-    </section>
-
-    <section class="panel">
-      <div class="toolbar">
-        <input id="searchInput" type="search" placeholder="Buscar cliente..." />
-        <select id="statusFilter">
-          <option value="Todos">Todos os status</option>
-          <option value="Ativo">Ativo</option>
-          <option value="Pausado">Pausado</option>
-          <option value="Cancelado">Cancelado</option>
-          <option value="Pendente">Pendente</option>
-        </select>
-        <input id="importFile" type="file" accept="application/json" hidden />
-        <button id="importBtn" class="secondary" type="button">Importar backup</button>
+    <section class="panel list-panel">
+      <div class="panel-head wrap">
+        <h2>Base AXIS 1</h2>
+        <div class="tools">
+          <input id="search" placeholder="Buscar por nome, plano ou WhatsApp" />
+          <select id="filterStatus">
+            <option value="Todos">Todos</option>
+            <option value="Lead">Leads</option>
+            <option value="Ativo">Ativos</option>
+            <option value="Pausado">Pausados</option>
+            <option value="Cancelado">Cancelados</option>
+          </select>
+          <button id="exportBackup" class="ghost" type="button">Exportar backup</button>
+          <label class="import-btn">Importar backup<input id="importBackup" type="file" accept="application/json" hidden /></label>
+        </div>
       </div>
 
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Cliente</th>
+              <th>Nome</th>
               <th>Plano</th>
               <th>Valor</th>
               <th>Status</th>
-              <th>Início</th>
+              <th>Follow-up</th>
               <th>Vencimento</th>
               <th>Ações</th>
             </tr>
           </thead>
-          <tbody id="clientsTable"></tbody>
+          <tbody id="crmTable"></tbody>
         </table>
       </div>
-      <p id="emptyState" class="empty">Nenhum cliente cadastrado ainda.</p>
     </section>
   </main>
 
