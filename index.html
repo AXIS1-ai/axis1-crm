@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CRM AXIS 1 — Blindado Automático</title>
+  <title>CRM Definitivo AXIS 1</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header class="topbar">
     <div>
       <p class="eyebrow">AXIS 1</p>
-      <h1>CRM Blindado</h1>
-      <p class="subtitle">Leads, clientes, follow-up, cobrança, botão pago e migração automática.</p>
+      <h1>CRM Definitivo</h1>
+      <p class="subtitle">Leads, clientes, follow-up, cobrança, financeiro PRO, 2x e backups.</p>
     </div>
     <div class="top-actions">
       <button id="exportBackupBtn" class="btn btn-secondary">Exportar backup</button>
@@ -19,29 +19,52 @@
         Importar backup
         <input type="file" id="importBackupInput" accept=".json" />
       </label>
+      <button id="restoreAutoBackupBtn" class="btn btn-warning">Restaurar backup automático</button>
     </div>
   </header>
 
   <main class="layout">
-    <section class="panel alert-panel">
+    <section class="panel protection">
       <div>
-        <h2>Proteção de dados</h2>
-        <p>
-          Esta versão reconhece dados antigos automaticamente. Mesmo assim, antes de atualizar no GitHub,
-          faça um backup manual.
-        </p>
+        <h2>CRM blindado</h2>
+        <p>Antes de atualizar no GitHub, exporte um backup. Esta versão também tenta converter dados antigos automaticamente.</p>
       </div>
-      <button id="restoreAutoBackupBtn" class="btn btn-warning">Restaurar backup automático</button>
+      <div class="goal-box">
+        <label>Meta mensal
+          <input id="monthlyGoal" placeholder="Ex: 10000" />
+        </label>
+        <button id="saveGoalBtn" class="btn btn-primary">Salvar meta</button>
+      </div>
     </section>
 
     <section class="cards">
-      <article class="metric-card"><span>Receita ativa mensal</span><strong id="activeRevenue">R$ 0,00</strong></article>
-      <article class="metric-card"><span>Clientes ativos</span><strong id="activeCount">0</strong></article>
-      <article class="metric-card"><span>Leads em aberto</span><strong id="leadCount">0</strong></article>
-      <article class="metric-card"><span>Cobranças/Follow-ups</span><strong id="pendingCount">0</strong></article>
+      <article class="metric-card">
+        <span>Recebido no mês</span>
+        <strong id="receivedMonth">R$ 0,00</strong>
+      </article>
+      <article class="metric-card">
+        <span>Falta para meta</span>
+        <strong id="remainingGoal">R$ 0,00</strong>
+      </article>
+      <article class="metric-card">
+        <span>Receita ativa mensal</span>
+        <strong id="activeRevenue">R$ 0,00</strong>
+      </article>
+      <article class="metric-card">
+        <span>Clientes ativos</span>
+        <strong id="activeCount">0</strong>
+      </article>
+      <article class="metric-card">
+        <span>Leads abertos</span>
+        <strong id="leadCount">0</strong>
+      </article>
+      <article class="metric-card danger">
+        <span>Atrasados</span>
+        <strong id="overdueCount">0</strong>
+      </article>
     </section>
 
-    <section class="panel" id="alertsBox">
+    <section class="panel">
       <h2>Alertas inteligentes</h2>
       <div id="alertsList" class="alerts-list"></div>
     </section>
@@ -55,8 +78,12 @@
       <form id="clientForm">
         <input type="hidden" id="recordId" />
         <div class="grid">
-          <label>Nome/Razão social<input id="name" required placeholder="Ex: Clínica Exemplo" /></label>
-          <label>WhatsApp<input id="phone" required placeholder="Ex: 16997424912" /></label>
+          <label>Nome/Razão social
+            <input id="name" required placeholder="Ex: Clínica Exemplo" />
+          </label>
+          <label>WhatsApp
+            <input id="phone" required placeholder="Ex: 16997424912" />
+          </label>
           <label>Plano
             <select id="plan" required>
               <option value="">Selecione</option>
@@ -68,7 +95,9 @@
               <option value="Outro">Outro</option>
             </select>
           </label>
-          <label>Valor mensal<input id="value" type="text" placeholder="Ex: 549,90" /></label>
+          <label>Valor mensal
+            <input id="value" type="text" placeholder="Ex: 549,90" />
+          </label>
           <label>Status
             <select id="status" required>
               <option value="Lead">Lead</option>
@@ -77,13 +106,33 @@
               <option value="Cancelado">Cancelado</option>
             </select>
           </label>
-          <label>Data do primeiro contato<input id="firstContactDate" type="date" /></label>
-          <label>Data de início<input id="startDate" type="date" /></label>
-          <label>Próximo vencimento<input id="dueDate" type="date" /></label>
+          <label>Forma de pagamento
+            <select id="paymentType">
+              <option value="1x">Mensal / 1x</option>
+              <option value="2x">2x no mês</option>
+            </select>
+          </label>
+          <label>Data do primeiro contato
+            <input id="firstContactDate" type="date" />
+          </label>
+          <label>Data de início
+            <input id="startDate" type="date" />
+          </label>
+          <label>Vencimento mensal / parcela 1
+            <input id="dueDate" type="date" />
+          </label>
+          <label id="dueDate2Wrap" class="hidden">Vencimento parcela 2
+            <input id="dueDate2" type="date" />
+          </label>
         </div>
 
-        <label>Observações<textarea id="notes" rows="3" placeholder="Ex: pediu proposta do plano estratégico"></textarea></label>
-        <div class="form-actions"><button class="btn btn-primary" type="submit">Salvar cadastro</button></div>
+        <label>Observações
+          <textarea id="notes" rows="3" placeholder="Ex: pediu proposta, pagamento combinado, detalhe do plano..."></textarea>
+        </label>
+
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit">Salvar cadastro</button>
+        </div>
       </form>
     </section>
 
@@ -106,7 +155,14 @@
         <table>
           <thead>
             <tr>
-              <th>Nome</th><th>Plano</th><th>Valor</th><th>Status</th><th>1º Contato</th><th>Vencimento</th><th>Ações</th>
+              <th>Nome</th>
+              <th>Plano</th>
+              <th>Valor</th>
+              <th>Status</th>
+              <th>Pagamento</th>
+              <th>Vencimento(s)</th>
+              <th>Último pagamento</th>
+              <th>Ações</th>
             </tr>
           </thead>
           <tbody id="recordsTable"></tbody>
@@ -115,7 +171,16 @@
     </section>
   </main>
 
+  <dialog id="historyDialog">
+    <div class="modal-head">
+      <h2>Histórico de pagamentos</h2>
+      <button id="closeHistoryBtn" class="btn btn-ghost">Fechar</button>
+    </div>
+    <div id="historyContent"></div>
+  </dialog>
+
   <div id="toast" class="toast"></div>
+
   <script src="script.js"></script>
 </body>
 </html>
