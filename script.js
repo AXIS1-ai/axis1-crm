@@ -1,8 +1,8 @@
-const STORAGE_KEY = "axis1_crm_definitivo_v1";
-const LEGACY_KEY = "axis1_crm_integrado_v1";
-const AUTO_BACKUP_KEY = "axis1_crm_definitivo_auto_backup_v1";
-const AUTO_BACKUP_DATE_KEY = "axis1_crm_definitivo_auto_backup_date_v1";
-const GOAL_KEY = "axis1_crm_monthly_goal_v1";
+const STORAGE_KEY = "axis1_crm_v2_insano";
+const LEGACY_KEYS = ["axis1_crm_v2_insano","axis1_crm_definitivo_v1","axis1_crm_integrado_v1","axis1_crm_records","axis1_crm_clientes","axis1_clientes","crmAxis1","clientesAxis1","axis1-crm","crm"];
+const SNAPSHOT_KEY = "axis1_crm_v2_snapshots";
+const TRASH_KEY = "axis1_crm_v2_trash";
+const GOAL_KEY = "axis1_crm_v2_goal";
 
 const planValues = {
   "Essencial": 399.90,
@@ -58,18 +58,32 @@ function normalizeStatus(status){
   if(s.includes("lead")) return "Lead";
   return status||"Lead";
 }
+function validateCpfCnpj(value){
+  const digits=onlyDigits(value);
+  if(!digits) return true;
+  if(digits.length===11) return !/^(\d)\1+$/.test(digits);
+  if(digits.length===14) return !/^(\d)\1+$/.test(digits);
+  return false;
+}
+function formatDoc(value){
+  const d=onlyDigits(value);
+  if(d.length===11) return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/,"$1.$2.$3-$4");
+  if(d.length===14) return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/,"$1.$2.$3/$4-$5");
+  return value || "";
+}
 function normalizeRecord(r){
   const paymentType = r.paymentType || r.tipoPagamento || r.formaPagamento || r.forma_pagamento || "1x";
-  const status = normalizeStatus(r.status || r.situacao || r.tipo);
   const value = parseMoney(r.value ?? r.valor ?? r.valorMensal ?? r.valor_mensal ?? r.investimento ?? 0);
   const history = Array.isArray(r.paymentHistory) ? r.paymentHistory : (Array.isArray(r.historicoPagamentos) ? r.historicoPagamentos : []);
   return {
     id: r.id || uid(),
     name: String(r.name || r.nome || r.cliente || r.razaoSocial || r.razao_social || r.razao || r.empresa || "").trim(),
+    documentNumber: onlyDigits(r.documentNumber || r.cnpj || r.cpf || r.cpfCnpj || r.cpf_cnpj || r.documento || ""),
     phone: onlyDigits(r.phone || r.telefone || r.whatsapp || r.celular || r.contato || ""),
+    email: String(r.email || r.e_mail || r.mail || "").trim(),
     plan: String(r.plan || r.plano || r.planoContratado || r.plano_contratado || r.servico || "").trim(),
     value,
-    status,
+    status: normalizeStatus(r.status || r.situacao || r.tipo),
     paymentType: String(paymentType).includes("2") ? "2x" : "1x",
     firstContactDate: r.firstContactDate || r.primeiroContato || r.primeiro_contato || r.dataPrimeiroContato || r.data_primeiro_contato || r.contactDate || "",
     startDate: r.startDate || r.dataInicio || r.data_inicio || r.inicio || "",
@@ -90,11 +104,14 @@ function migrateArray(arr){return arr.filter(x=>x&&typeof x==="object").map(norm
 function readArrayFromRaw(raw){
   const parsed=JSON.parse(raw);
   if(Array.isArray(parsed)) return parsed;
-  return parsed.records || parsed.clientes || parsed.data || [];
+  if(Array.isArray(parsed.records)) return parsed.records;
+  if(Array.isArray(parsed.clientes)) return parsed.clientes;
+  if(Array.isArray(parsed.data)) return parsed.data;
+  if(parsed.backup && Array.isArray(parsed.backup.records)) return parsed.backup.records;
+  return [];
 }
 function findInitialData(){
-  const keys=[STORAGE_KEY, LEGACY_KEY, "axis1_crm_records", "axis1_crm_clientes", "axis1_clientes", "crmAxis1", "clientesAxis1", "axis1-crm", "crm"];
-  for(const key of keys){
+  for(const key of LEGACY_KEYS){
     const raw=localStorage.getItem(key);
     if(!raw) continue;
     try{
@@ -104,24 +121,45 @@ function findInitialData(){
   }
   return [];
 }
-let records=findInitialData();
+
+let records = findInitialData();
+let trash = loadTrash();
 localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
 
 function toast(msg){
   const el=$("toast");
   el.textContent=msg;
   el.classList.add("show");
-  setTimeout(()=>el.classList.remove("show"),3200);
+  setTimeout(()=>el.classList.remove("show"),3500);
 }
-function autoBackup(){
-  const payload={exportedAt:new Date().toISOString(), version:"crm-definitivo-v1", records};
-  localStorage.setItem(AUTO_BACKUP_KEY, JSON.stringify(payload));
-  localStorage.setItem(AUTO_BACKUP_DATE_KEY, new Date().toLocaleString("pt-BR"));
+function getSnapshots(){
+  try{return JSON.parse(localStorage.getItem(SNAPSHOT_KEY))||[]}catch{return []}
 }
-function saveRecords(){
+function createSnapshot(reason){
+  const snapshots=getSnapshots();
+  snapshots.unshift({date:new Date().toISOString(), reason, records});
+  localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshots.slice(0,10)));
+}
+function saveRecords(reason="Alteração salva"){
+  createSnapshot(reason);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-  autoBackup();
   render();
+}
+function loadTrash(){
+  try{return JSON.parse(localStorage.getItem(TRASH_KEY))||[]}catch{return []}
+}
+function saveTrash(){
+  localStorage.setItem(TRASH_KEY, JSON.stringify(trash));
+}
+function restoreSnapshot(){
+  const snapshots=getSnapshots();
+  if(!snapshots.length) return toast("Nenhuma versão anterior encontrada.");
+  const s=snapshots[0];
+  if(!confirm(`Restaurar versão anterior de ${new Date(s.date).toLocaleString("pt-BR")}?\nMotivo: ${s.reason}`)) return;
+  records=migrateArray(s.records||[]);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+  render();
+  toast("Versão anterior restaurada.");
 }
 function recordFromForm(){
   const selectedPlan=$("plan").value;
@@ -131,7 +169,9 @@ function recordFromForm(){
   return {
     id:$("recordId").value || uid(),
     name:$("name").value.trim(),
+    documentNumber:onlyDigits($("documentNumber").value),
     phone:onlyDigits($("phone").value.trim()),
+    email:$("email").value.trim(),
     plan:selectedPlan,
     value,
     status:$("status").value,
@@ -147,7 +187,9 @@ function recordFromForm(){
 }
 function validateRecord(r){
   if(!r.name) return "Informe o nome/razão social.";
+  if(r.documentNumber && !validateCpfCnpj(r.documentNumber)) return "Informe um CPF/CNPJ com 11 ou 14 dígitos válidos.";
   if(!r.phone || r.phone.length<10 || r.phone.length>11) return "Informe um WhatsApp válido com DDD.";
+  if(r.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email)) return "Informe um e-mail válido.";
   if(!r.plan) return "Selecione um plano.";
   if(r.status==="Lead" && !r.firstContactDate) return "Para lead, informe a data do primeiro contato.";
   if(r.status==="Ativo" && !r.dueDate) return "Para cliente ativo, informe o vencimento mensal ou parcela 1.";
@@ -158,7 +200,7 @@ function upsertRecord(r){
   const idx=records.findIndex(x=>x.id===r.id);
   if(idx>=0) records[idx]=r;
   else records.unshift(r);
-  saveRecords();
+  saveRecords("Cadastro salvo/editado");
   clearForm();
   toast("Cadastro salvo com segurança.");
 }
@@ -173,7 +215,9 @@ function clearForm(){
 function fillForm(r){
   $("recordId").value=r.id;
   $("name").value=r.name||"";
+  $("documentNumber").value=formatDoc(r.documentNumber||"");
   $("phone").value=r.phone||"";
+  $("email").value=r.email||"";
   $("plan").value=r.plan||"";
   $("value").value=r.value ? String(r.value).replace(".",",") : "";
   $("status").value=r.status||"Lead";
@@ -189,10 +233,31 @@ function fillForm(r){
 }
 function deleteRecord(id){
   const rec=records.find(r=>r.id===id);
-  if(!confirm(`Excluir "${rec?.name||"cadastro"}"? Faça backup antes se tiver dúvida.`)) return;
+  if(!rec) return;
+  if(!confirm(`Mover "${rec.name}" para a lixeira?`)) return;
+  trash.unshift({...rec, deletedAt:new Date().toISOString()});
+  trash=trash.slice(0,20);
+  saveTrash();
   records=records.filter(r=>r.id!==id);
-  saveRecords();
-  toast("Cadastro excluído.");
+  saveRecords("Cadastro movido para lixeira");
+  toast("Cadastro movido para a lixeira.");
+}
+function restoreFromTrash(id){
+  const rec=trash.find(r=>r.id===id);
+  if(!rec) return;
+  records.unshift(normalizeRecord(rec));
+  trash=trash.filter(r=>r.id!==id);
+  saveTrash();
+  saveRecords("Cadastro restaurado da lixeira");
+  toast("Cadastro restaurado.");
+}
+function clearTrash(){
+  if(!trash.length) return toast("Lixeira já está vazia.");
+  if(!confirm("Esvaziar lixeira definitivamente?")) return;
+  trash=[];
+  saveTrash();
+  renderTrash();
+  toast("Lixeira esvaziada.");
 }
 function markAsClient(id){
   const r=records.find(x=>x.id===id);
@@ -200,7 +265,7 @@ function markAsClient(id){
   r.status="Ativo";
   r.startDate=r.startDate||todayStr();
   r.dueDate=r.dueDate||addOneMonth(todayStr());
-  saveRecords();
+  saveRecords("Lead convertido em cliente");
   toast("Lead convertido em cliente ativo.");
 }
 function registerPayment(id, installment){
@@ -219,16 +284,12 @@ function registerPayment(id, installment){
   });
   if(r.paymentType==="1x"){
     r.dueDate=addOneMonth(r.dueDate||todayStr());
-  } else {
-    if(installment===1){
-      toast("1ª parcela registrada. A 2ª parcela continua pendente.");
-    } else {
-      r.dueDate=addOneMonth(r.dueDate||todayStr());
-      r.dueDate2=addOneMonth(r.dueDate2||todayStr());
-    }
+  } else if(installment===2){
+    r.dueDate=addOneMonth(r.dueDate||todayStr());
+    r.dueDate2=addOneMonth(r.dueDate2||todayStr());
   }
-  saveRecords();
-  toast("Pagamento registrado.");
+  saveRecords("Pagamento registrado");
+  toast(r.paymentType==="2x" && installment===1 ? "1ª parcela registrada. 2ª parcela continua pendente." : "Pagamento registrado.");
 }
 function whatsappUrl(phone,message){return `https://wa.me/${normalizePhone(phone)}?text=${encodeURIComponent(message)}`}
 function openCharge(id, installment=1){
@@ -258,23 +319,21 @@ function openFollowUp(id){
 function paymentMonthTotal(){
   const now=new Date();
   const y=now.getFullYear(), m=now.getMonth();
-  return records.reduce((sum,r)=>{
-    return sum + (r.paymentHistory||[]).reduce((s,h)=>{
-      const d=new Date(`${h.paidAt}T12:00:00`);
-      return d.getFullYear()===y && d.getMonth()===m ? s+(Number(h.amount)||0) : s;
-    },0);
-  },0);
+  return records.reduce((sum,r)=>sum+(r.paymentHistory||[]).reduce((s,h)=>{
+    const d=new Date(`${h.paidAt}T12:00:00`);
+    return d.getFullYear()===y && d.getMonth()===m ? s+(Number(h.amount)||0) : s;
+  },0),0);
 }
 function isPaymentRegisteredThisCycle(r, installment){
   const due = installment===2 ? r.dueDate2 : r.dueDate;
   return (r.paymentHistory||[]).some(h=>h.previousDueDate===due && String(h.installment).includes(r.paymentType==="2x"?`${installment}`:"Mensal"));
 }
 function exportBackup(){
-  const payload={exportedAt:new Date().toISOString(), version:"crm-definitivo-v1", records, monthlyGoal:localStorage.getItem(GOAL_KEY)||""};
+  const payload={exportedAt:new Date().toISOString(), version:"crm-v2-insano", records, trash, monthlyGoal:localStorage.getItem(GOAL_KEY)||""};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
   const a=document.createElement("a");
   a.href=URL.createObjectURL(blob);
-  a.download=`backup-crm-axis1-definitivo-${todayStr()}.json`;
+  a.download=`backup-crm-axis1-v2-insano-${todayStr()}.json`;
   a.click();
   URL.revokeObjectURL(a.href);
   toast("Backup exportado.");
@@ -285,30 +344,21 @@ function importBackup(file){
   reader.onload=()=>{
     try{
       const data=JSON.parse(reader.result);
-      const imported=Array.isArray(data)?data:(data.records||data.clientes||data.data);
+      let imported = Array.isArray(data)?data:(data.records||data.clientes||data.data||data.backup?.records);
       if(!Array.isArray(imported)) throw new Error("Formato inválido");
       if(!confirm("Importar esse backup vai substituir os cadastros atuais deste navegador. Deseja continuar?")) return;
+      createSnapshot("Antes de importar backup");
       records=migrateArray(imported);
+      if(Array.isArray(data.trash)) trash=migrateArray(data.trash);
       if(data.monthlyGoal) localStorage.setItem(GOAL_KEY, data.monthlyGoal);
-      saveRecords();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+      saveTrash();
       loadGoal();
-      toast("Backup importado e convertido.");
-    }catch(e){toast("Não foi possível importar. Arquivo inválido.")}
+      render();
+      toast("Backup importado e convertido automaticamente.");
+    }catch(e){toast("Não foi possível importar. Arquivo inválido ou incompatível.")}
   };
   reader.readAsText(file);
-}
-function restoreAutoBackup(){
-  const raw=localStorage.getItem(AUTO_BACKUP_KEY);
-  if(!raw) return toast("Nenhum backup automático encontrado.");
-  const date=localStorage.getItem(AUTO_BACKUP_DATE_KEY)||"data desconhecida";
-  if(!confirm(`Restaurar backup automático de ${date}? Isso substituirá a lista atual.`)) return;
-  try{
-    const data=JSON.parse(raw);
-    const imported=Array.isArray(data)?data:data.records;
-    records=migrateArray(imported);
-    saveRecords();
-    toast("Backup automático restaurado.");
-  }catch{toast("Backup automático inválido.")}
 }
 function loadGoal(){
   const g=localStorage.getItem(GOAL_KEY)||"";
@@ -327,7 +377,7 @@ function getFilteredRecords(){
   const status=$("statusFilter").value;
   return records.filter(r=>{
     const matchStatus=status==="Todos"||r.status===status;
-    const text=`${r.name} ${r.plan} ${r.phone} ${r.notes}`.toLowerCase();
+    const text=`${r.name} ${r.documentNumber} ${r.plan} ${r.phone} ${r.email} ${r.notes}`.toLowerCase();
     return matchStatus && text.includes(q);
   });
 }
@@ -337,8 +387,7 @@ function buildAlerts(){
     if(r.status==="Ativo"){
       const dues = r.paymentType==="2x" ? [{n:1,date:r.dueDate},{n:2,date:r.dueDate2}] : [{n:1,date:r.dueDate}];
       dues.forEach(d=>{
-        if(!d.date) return;
-        if(isPaymentRegisteredThisCycle(r,d.n)) return;
+        if(!d.date || isPaymentRegisteredThisCycle(r,d.n)) return;
         const diff=daysBetween(d.date);
         const label = r.paymentType==="2x" ? `${d.n}ª parcela` : "mensalidade";
         if(diff<0) alerts.push({urgent:true,type:"Cobrança vencida",text:`${r.name} — ${label} venceu em ${formatDate(d.date)}`,action:()=>openCharge(r.id,d.n),label:"Cobrar"});
@@ -383,7 +432,7 @@ function renderMetrics(){
 function renderTable(){
   const tbody=$("recordsTable");
   const data=getFilteredRecords();
-  if(!data.length){tbody.innerHTML=`<tr><td colspan="8">Nenhum cadastro encontrado.</td></tr>`;return}
+  if(!data.length){tbody.innerHTML=`<tr><td colspan="9">Nenhum cadastro encontrado.</td></tr>`;return}
   tbody.innerHTML="";
   data.forEach(r=>{
     const overdue = r.status==="Ativo" && ((r.dueDate&&daysBetween(r.dueDate)<0&&!isPaymentRegisteredThisCycle(r,1)) || (r.paymentType==="2x"&&r.dueDate2&&daysBetween(r.dueDate2)<0&&!isPaymentRegisteredThisCycle(r,2)));
@@ -394,15 +443,13 @@ function renderTable(){
     const actions=[`<button class="btn btn-secondary btn-small" data-action="edit">Editar</button>`,`<button class="btn btn-secondary btn-small" data-action="history">Histórico</button>`];
     if(r.status==="Lead"){actions.push(`<button class="btn btn-primary btn-small" data-action="follow">Follow-up</button>`,`<button class="btn btn-warning btn-small" data-action="client">Virou cliente</button>`)}
     if(r.status==="Ativo"){
-      if(r.paymentType==="2x"){
-        actions.push(`<button class="btn btn-primary btn-small" data-action="paid1">Pago 1</button>`,`<button class="btn btn-primary btn-small" data-action="paid2">Pago 2</button>`,`<button class="btn btn-warning btn-small" data-action="charge1">Cobrar 1</button>`,`<button class="btn btn-warning btn-small" data-action="charge2">Cobrar 2</button>`);
-      }else{
-        actions.push(`<button class="btn btn-primary btn-small" data-action="paid">Pago</button>`,`<button class="btn btn-warning btn-small" data-action="charge">Cobrar</button>`);
-      }
+      if(r.paymentType==="2x") actions.push(`<button class="btn btn-primary btn-small" data-action="paid1">Pago 1</button>`,`<button class="btn btn-primary btn-small" data-action="paid2">Pago 2</button>`,`<button class="btn btn-warning btn-small" data-action="charge1">Cobrar 1</button>`,`<button class="btn btn-warning btn-small" data-action="charge2">Cobrar 2</button>`);
+      else actions.push(`<button class="btn btn-primary btn-small" data-action="paid">Pago</button>`,`<button class="btn btn-warning btn-small" data-action="charge">Cobrar</button>`);
     }
     actions.push(`<button class="btn btn-danger btn-small" data-action="delete">Excluir</button>`);
     tr.innerHTML=`
-      <td><strong>${r.name||"-"}</strong><br><span class="muted">${r.phone||""}</span></td>
+      <td><strong>${r.name||"-"}</strong><br><span class="muted">${r.phone||""}${r.email?` • ${r.email}`:""}</span></td>
+      <td>${r.documentNumber?formatDoc(r.documentNumber):"-"}</td>
       <td>${r.plan||"-"}</td>
       <td>${formatMoney(r.value)}</td>
       <td><span class="badge ${r.status}">${r.status}</span>${overdue?`<br><span class="badge overdue">atrasado</span>`:""}</td>
@@ -427,21 +474,34 @@ function showHistory(id){
   else c.innerHTML=hist.map(h=>`<div class="history-row"><div><strong>${h.installment}</strong><br><span class="muted">Pago em ${formatDate(h.paidAt)} | Vencimento: ${formatDate(h.previousDueDate)}</span></div><strong>${formatMoney(h.amount)}</strong></div>`).join("");
   $("historyDialog").showModal();
 }
-function render(){renderMetrics();renderAlerts();renderTable()}
+function renderTrash(){
+  const box=$("trashList");
+  if(!trash.length){box.innerHTML=`<div class="trash-item"><span>Lixeira vazia.</span></div>`;return}
+  box.innerHTML="";
+  trash.forEach(r=>{
+    const div=document.createElement("div");
+    div.className="trash-item";
+    div.innerHTML=`<div><strong>${r.name||"-"}</strong><br><span>${r.plan||"-"} • excluído em ${new Date(r.deletedAt||Date.now()).toLocaleString("pt-BR")}</span></div><button class="btn btn-warning btn-small">Restaurar</button>`;
+    div.querySelector("button").onclick=()=>restoreFromTrash(r.id);
+    box.appendChild(div);
+  });
+}
+function render(){renderMetrics();renderAlerts();renderTable();renderTrash()}
 
 $("clientForm").addEventListener("submit",e=>{e.preventDefault();const r=recordFromForm();const error=validateRecord(r);if(error)return toast(error);upsertRecord(r)});
 $("plan").addEventListener("change",()=>{const plan=$("plan").value;if(planValues[plan]&&!$("value").value)$("value").value=String(planValues[plan]).replace(".",",")});
 $("paymentType").addEventListener("change",toggleDue2);
+$("documentNumber").addEventListener("blur",()=>{$("documentNumber").value=formatDoc($("documentNumber").value)});
 $("clearFormBtn").onclick=clearForm;
 $("exportBackupBtn").onclick=exportBackup;
 $("importBackupInput").onchange=e=>importBackup(e.target.files[0]);
-$("restoreAutoBackupBtn").onclick=restoreAutoBackup;
+$("restoreSnapshotBtn").onclick=restoreSnapshot;
 $("saveGoalBtn").onclick=saveGoal;
 $("searchInput").oninput=renderTable;
 $("statusFilter").onchange=renderTable;
 $("closeHistoryBtn").onclick=()=>$("historyDialog").close();
+$("clearTrashBtn").onclick=clearTrash;
 
 loadGoal();
 toggleDue2();
-autoBackup();
 render();

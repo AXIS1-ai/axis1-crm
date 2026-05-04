@@ -3,31 +3,31 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CRM Definitivo AXIS 1</title>
+  <title>CRM AXIS 1 v2 Insano</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header class="topbar">
     <div>
       <p class="eyebrow">AXIS 1</p>
-      <h1>CRM Definitivo</h1>
-      <p class="subtitle">Leads, clientes, follow-up, cobrança, financeiro PRO, 2x e backups.</p>
+      <h1>CRM v2 Insano</h1>
+      <p class="subtitle">Leads, clientes, CNPJ, financeiro, 2x, follow-up, cobrança e backup nível Deus.</p>
     </div>
     <div class="top-actions">
       <button id="exportBackupBtn" class="btn btn-secondary">Exportar backup</button>
       <label class="btn btn-secondary file-label">
-        Importar backup
+        Importar backup universal
         <input type="file" id="importBackupInput" accept=".json" />
       </label>
-      <button id="restoreAutoBackupBtn" class="btn btn-warning">Restaurar backup automático</button>
+      <button id="restoreSnapshotBtn" class="btn btn-warning">Restaurar versão anterior</button>
     </div>
   </header>
 
   <main class="layout">
     <section class="panel protection">
       <div>
-        <h2>CRM blindado</h2>
-        <p>Antes de atualizar no GitHub, exporte um backup. Esta versão também tenta converter dados antigos automaticamente.</p>
+        <h2>Proteção nível Deus</h2>
+        <p>Importa backups antigos, cria versões internas, tem lixeira temporária e valida dados importantes antes de salvar.</p>
       </div>
       <div class="goal-box">
         <label>Meta mensal
@@ -38,30 +38,12 @@
     </section>
 
     <section class="cards">
-      <article class="metric-card">
-        <span>Recebido no mês</span>
-        <strong id="receivedMonth">R$ 0,00</strong>
-      </article>
-      <article class="metric-card">
-        <span>Falta para meta</span>
-        <strong id="remainingGoal">R$ 0,00</strong>
-      </article>
-      <article class="metric-card">
-        <span>Receita ativa mensal</span>
-        <strong id="activeRevenue">R$ 0,00</strong>
-      </article>
-      <article class="metric-card">
-        <span>Clientes ativos</span>
-        <strong id="activeCount">0</strong>
-      </article>
-      <article class="metric-card">
-        <span>Leads abertos</span>
-        <strong id="leadCount">0</strong>
-      </article>
-      <article class="metric-card danger">
-        <span>Atrasados</span>
-        <strong id="overdueCount">0</strong>
-      </article>
+      <article class="metric-card"><span>Recebido no mês</span><strong id="receivedMonth">R$ 0,00</strong></article>
+      <article class="metric-card"><span>Falta para meta</span><strong id="remainingGoal">R$ 0,00</strong></article>
+      <article class="metric-card"><span>Receita ativa mensal</span><strong id="activeRevenue">R$ 0,00</strong></article>
+      <article class="metric-card"><span>Clientes ativos</span><strong id="activeCount">0</strong></article>
+      <article class="metric-card"><span>Leads abertos</span><strong id="leadCount">0</strong></article>
+      <article class="metric-card danger"><span>Atrasados</span><strong id="overdueCount">0</strong></article>
     </section>
 
     <section class="panel">
@@ -81,8 +63,14 @@
           <label>Nome/Razão social
             <input id="name" required placeholder="Ex: Clínica Exemplo" />
           </label>
+          <label>CNPJ/CPF
+            <input id="documentNumber" placeholder="Ex: 39.385.385/0001-98" />
+          </label>
           <label>WhatsApp
             <input id="phone" required placeholder="Ex: 16997424912" />
+          </label>
+          <label>E-mail
+            <input id="email" type="email" placeholder="cliente@email.com" />
           </label>
           <label>Plano
             <select id="plan" required>
@@ -127,7 +115,7 @@
         </div>
 
         <label>Observações
-          <textarea id="notes" rows="3" placeholder="Ex: pediu proposta, pagamento combinado, detalhe do plano..."></textarea>
+          <textarea id="notes" rows="3" placeholder="Ex: origem do lead, combinado financeiro, detalhes do plano..."></textarea>
         </label>
 
         <div class="form-actions">
@@ -140,7 +128,7 @@
       <div class="section-head table-head">
         <h2>Cadastros</h2>
         <div class="filters">
-          <input id="searchInput" placeholder="Buscar por nome, plano ou telefone..." />
+          <input id="searchInput" placeholder="Buscar por nome, CNPJ, plano ou telefone..." />
           <select id="statusFilter">
             <option value="Todos">Todos</option>
             <option value="Lead">Leads</option>
@@ -155,7 +143,8 @@
         <table>
           <thead>
             <tr>
-              <th>Nome</th>
+              <th>Contato</th>
+              <th>CNPJ/CPF</th>
               <th>Plano</th>
               <th>Valor</th>
               <th>Status</th>
@@ -169,6 +158,14 @@
         </table>
       </div>
     </section>
+
+    <section class="panel trash-panel">
+      <div class="section-head">
+        <h2>Lixeira temporária</h2>
+        <button id="clearTrashBtn" class="btn btn-danger">Esvaziar lixeira</button>
+      </div>
+      <div id="trashList" class="trash-list"></div>
+    </section>
   </main>
 
   <dialog id="historyDialog">
@@ -180,7 +177,6 @@
   </dialog>
 
   <div id="toast" class="toast"></div>
-
   <script src="script.js"></script>
 </body>
 </html>
