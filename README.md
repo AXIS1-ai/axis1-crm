@@ -1,12 +1,21 @@
-# CRM AXIS 1 com Cobrança Inteligente
+# CRM AXIS 1 — Blindado
 
-Sistema local/gratuito para controle de clientes, planos, vencimentos e cobrança por WhatsApp.
+Versão com:
+- Leads e clientes no mesmo CRM
+- Follow-up automático para leads
+- Cobrança inteligente para clientes ativos
+- Botão "Pago" para avançar o vencimento automaticamente em 1 mês
+- Backup manual em JSON
+- Backup automático interno no navegador
+- Importação protegida de backup
+- Busca, filtros e receita ativa mensal
 
-## Como usar
-1. Abra `index.html`.
-2. Cadastre seus clientes.
-3. Informe próximo vencimento e WhatsApp.
-4. Ao abrir o CRM, ele mostra vencidos, vencem hoje e vencem amanhã.
-5. Clique em **Cobrar** para abrir o WhatsApp com mensagem pronta.
+## Antes de atualizar no GitHub Pages
+1. Abra o CRM atual
+2. Clique em Exportar backup
+3. Salve o arquivo JSON em local seguro
+4. Suba os novos arquivos no GitHub
+5. Teste em aba anônima
+6. Se os dados não aparecerem, use Importar backup
 
-Os dados ficam salvos no navegador. Use **Exportar backup** com frequência.
+Importante: os dados ficam salvos no navegador/localStorage. Eles não ficam no GitHub.
