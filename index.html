@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CRM AXIS 1 — Blindado</title>
+  <title>CRM AXIS 1 — Blindado Automático</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -11,48 +11,110 @@
     <div>
       <p class="eyebrow">AXIS 1</p>
       <h1>CRM Blindado</h1>
-      <p class="subtitle">Leads, clientes, follow-up, cobrança e backups protegidos.</p>
+      <p class="subtitle">Leads, clientes, follow-up, cobrança, botão pago e migração automática.</p>
     </div>
     <div class="top-actions">
       <button id="exportBackupBtn" class="btn btn-secondary">Exportar backup</button>
-      <label class="btn btn-secondary file-label">Importar backup<input type="file" id="importBackupInput" accept=".json" /></label>
+      <label class="btn btn-secondary file-label">
+        Importar backup
+        <input type="file" id="importBackupInput" accept=".json" />
+      </label>
     </div>
   </header>
+
   <main class="layout">
     <section class="panel alert-panel">
-      <div><h2>Proteção de dados</h2><p>Antes de atualizar arquivos no GitHub, clique em <strong>Exportar backup</strong>. O sistema também mantém um backup automático interno no navegador.</p></div>
+      <div>
+        <h2>Proteção de dados</h2>
+        <p>
+          Esta versão reconhece dados antigos automaticamente. Mesmo assim, antes de atualizar no GitHub,
+          faça um backup manual.
+        </p>
+      </div>
       <button id="restoreAutoBackupBtn" class="btn btn-warning">Restaurar backup automático</button>
     </section>
+
     <section class="cards">
       <article class="metric-card"><span>Receita ativa mensal</span><strong id="activeRevenue">R$ 0,00</strong></article>
       <article class="metric-card"><span>Clientes ativos</span><strong id="activeCount">0</strong></article>
       <article class="metric-card"><span>Leads em aberto</span><strong id="leadCount">0</strong></article>
       <article class="metric-card"><span>Cobranças/Follow-ups</span><strong id="pendingCount">0</strong></article>
     </section>
-    <section class="panel" id="alertsBox"><h2>Alertas inteligentes</h2><div id="alertsList" class="alerts-list"></div></section>
+
+    <section class="panel" id="alertsBox">
+      <h2>Alertas inteligentes</h2>
+      <div id="alertsList" class="alerts-list"></div>
+    </section>
+
     <section class="panel form-panel">
-      <div class="section-head"><h2 id="formTitle">Cadastrar lead/cliente</h2><button id="clearFormBtn" class="btn btn-ghost">Limpar</button></div>
+      <div class="section-head">
+        <h2 id="formTitle">Cadastrar lead/cliente</h2>
+        <button id="clearFormBtn" class="btn btn-ghost">Limpar</button>
+      </div>
+
       <form id="clientForm">
         <input type="hidden" id="recordId" />
         <div class="grid">
-          <label>Nome/Razão social<input id="name" required placeholder="Ex: Quinta da Garrafeira" /></label>
+          <label>Nome/Razão social<input id="name" required placeholder="Ex: Clínica Exemplo" /></label>
           <label>WhatsApp<input id="phone" required placeholder="Ex: 16997424912" /></label>
-          <label>Plano<select id="plan" required><option value="">Selecione</option><option value="Essencial">Essencial</option><option value="Estratégico">Estratégico</option><option value="Autoridade">Autoridade</option><option value="Autoridade + Landing Page">Autoridade + Landing Page</option><option value="Autoridade + Site">Autoridade + Site</option><option value="Outro">Outro</option></select></label>
+          <label>Plano
+            <select id="plan" required>
+              <option value="">Selecione</option>
+              <option value="Essencial">Essencial</option>
+              <option value="Estratégico">Estratégico</option>
+              <option value="Autoridade">Autoridade</option>
+              <option value="Autoridade + Landing Page">Autoridade + Landing Page</option>
+              <option value="Autoridade + Site">Autoridade + Site</option>
+              <option value="Outro">Outro</option>
+            </select>
+          </label>
           <label>Valor mensal<input id="value" type="text" placeholder="Ex: 549,90" /></label>
-          <label>Status<select id="status" required><option value="Lead">Lead</option><option value="Ativo">Ativo</option><option value="Pausado">Pausado</option><option value="Cancelado">Cancelado</option></select></label>
+          <label>Status
+            <select id="status" required>
+              <option value="Lead">Lead</option>
+              <option value="Ativo">Ativo</option>
+              <option value="Pausado">Pausado</option>
+              <option value="Cancelado">Cancelado</option>
+            </select>
+          </label>
           <label>Data do primeiro contato<input id="firstContactDate" type="date" /></label>
           <label>Data de início<input id="startDate" type="date" /></label>
           <label>Próximo vencimento<input id="dueDate" type="date" /></label>
         </div>
-        <label>Observações<textarea id="notes" rows="3" placeholder="Ex: cliente pediu proposta do plano estratégico"></textarea></label>
+
+        <label>Observações<textarea id="notes" rows="3" placeholder="Ex: pediu proposta do plano estratégico"></textarea></label>
         <div class="form-actions"><button class="btn btn-primary" type="submit">Salvar cadastro</button></div>
       </form>
     </section>
+
     <section class="panel">
-      <div class="section-head table-head"><h2>Cadastros</h2><div class="filters"><input id="searchInput" placeholder="Buscar por nome, plano ou telefone..." /><select id="statusFilter"><option value="Todos">Todos</option><option value="Lead">Leads</option><option value="Ativo">Ativos</option><option value="Pausado">Pausados</option><option value="Cancelado">Cancelados</option></select></div></div>
-      <div class="table-wrap"><table><thead><tr><th>Nome</th><th>Plano</th><th>Valor</th><th>Status</th><th>1º Contato</th><th>Vencimento</th><th>Ações</th></tr></thead><tbody id="recordsTable"></tbody></table></div>
+      <div class="section-head table-head">
+        <h2>Cadastros</h2>
+        <div class="filters">
+          <input id="searchInput" placeholder="Buscar por nome, plano ou telefone..." />
+          <select id="statusFilter">
+            <option value="Todos">Todos</option>
+            <option value="Lead">Leads</option>
+            <option value="Ativo">Ativos</option>
+            <option value="Pausado">Pausados</option>
+            <option value="Cancelado">Cancelados</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Nome</th><th>Plano</th><th>Valor</th><th>Status</th><th>1º Contato</th><th>Vencimento</th><th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="recordsTable"></tbody>
+        </table>
+      </div>
     </section>
   </main>
+
   <div id="toast" class="toast"></div>
   <script src="script.js"></script>
 </body>
