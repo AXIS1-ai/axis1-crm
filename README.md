@@ -1,30 +1,12 @@
-# CRM AXIS 1 v2 Insano
+# Proposta AXIS 1 Integrada ao CRM
 
-Versão com:
-- Campo CNPJ/CPF
-- Lead + cliente no mesmo sistema
-- Follow-up automático
-- Cobrança inteligente
-- Pagamento mensal ou 2x
-- Botões Pago, Pago 1 e Pago 2
-- Receita recebida no mês
-- Meta mensal
-- Clientes atrasados
-- Histórico de pagamentos
-- Lixeira temporária
-- Restaurar versão anterior
-- Importação universal de backup
-- Migração automática de versões antigas
+Versão segura para teste local.
 
-## Como atualizar
-1. Abra o CRM atual.
-2. Exporte backup.
-3. Suba estes 4 arquivos no repositório axis1-crm.
-4. Abra em aba anônima.
-5. Importe o backup, se necessário.
+Ela envia pelo WhatsApp:
+- dados do lead
+- plano escolhido
+- origem
+- link inteligente para importar no CRM
 
-Arquivos:
-- index.html
-- style.css
-- script.js
-- README.md
+Próxima etapa:
+Atualizar o CRM para ler ?importLead= automaticamente.

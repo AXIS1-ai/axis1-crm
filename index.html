@@ -3,180 +3,76 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CRM AXIS 1 v2 Insano</title>
+  <title>Proposta AXIS 1 — Integrada ao CRM</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <header class="topbar">
-    <div>
-      <p class="eyebrow">AXIS 1</p>
-      <h1>CRM v2 Insano</h1>
-      <p class="subtitle">Leads, clientes, CNPJ, financeiro, 2x, follow-up, cobrança e backup nível Deus.</p>
-    </div>
-    <div class="top-actions">
-      <button id="exportBackupBtn" class="btn btn-secondary">Exportar backup</button>
-      <label class="btn btn-secondary file-label">
-        Importar backup universal
-        <input type="file" id="importBackupInput" accept=".json" />
-      </label>
-      <button id="restoreSnapshotBtn" class="btn btn-warning">Restaurar versão anterior</button>
-    </div>
+  <header class="hero">
+    <div class="brand">AXIS 1</div>
+    <p class="eyebrow">Marketing Estratégico</p>
+    <h1>Você já recebe contatos. Mas não fecha?</h1>
+    <p class="subtitle">Estrutura comercial, conteúdo, tráfego e acompanhamento para sua empresa vender com mais clareza.</p>
+    <a href="#planos" class="btn btn-primary">Ver planos</a>
   </header>
 
-  <main class="layout">
-    <section class="panel protection">
-      <div>
-        <h2>Proteção nível Deus</h2>
-        <p>Importa backups antigos, cria versões internas, tem lixeira temporária e valida dados importantes antes de salvar.</p>
-      </div>
-      <div class="goal-box">
-        <label>Meta mensal
-          <input id="monthlyGoal" placeholder="Ex: 10000" />
-        </label>
-        <button id="saveGoalBtn" class="btn btn-primary">Salvar meta</button>
-      </div>
+  <main>
+    <section class="panel intro">
+      <h2>Escolha o plano ideal</h2>
+      <p>Selecione um plano, preencha seus dados e envie para a AXIS 1 pelo WhatsApp.</p>
     </section>
 
-    <section class="cards">
-      <article class="metric-card"><span>Recebido no mês</span><strong id="receivedMonth">R$ 0,00</strong></article>
-      <article class="metric-card"><span>Falta para meta</span><strong id="remainingGoal">R$ 0,00</strong></article>
-      <article class="metric-card"><span>Receita ativa mensal</span><strong id="activeRevenue">R$ 0,00</strong></article>
-      <article class="metric-card"><span>Clientes ativos</span><strong id="activeCount">0</strong></article>
-      <article class="metric-card"><span>Leads abertos</span><strong id="leadCount">0</strong></article>
-      <article class="metric-card danger"><span>Atrasados</span><strong id="overdueCount">0</strong></article>
-    </section>
-
-    <section class="panel">
-      <h2>Alertas inteligentes</h2>
-      <div id="alertsList" class="alerts-list"></div>
+    <section id="planos" class="plans">
+      <article class="plan-card active" data-plan="Essencial">
+        <span>Entrada estratégica</span>
+        <h3>Essencial</h3>
+        <p>R$ 399,90/mês</p>
+        <ul><li>8 posts mensais</li><li>Gestão do perfil</li><li>Tráfego pago</li><li>Relatórios simples</li></ul>
+      </article>
+      <article class="plan-card" data-plan="Estratégico">
+        <span>Mais escolhido</span>
+        <h3>Estratégico</h3>
+        <p>R$ 549,90/mês</p>
+        <ul><li>12 posts mensais</li><li>Gestão completa</li><li>Google ou LinkedIn</li><li>Reunião mensal</li></ul>
+      </article>
+      <article class="plan-card" data-plan="Autoridade">
+        <span>Crescimento</span>
+        <h3>Autoridade</h3>
+        <p>R$ 969,90/mês</p>
+        <ul><li>16+ conteúdos</li><li>Gestão Instagram</li><li>Posicionamento</li><li>Acompanhamento</li></ul>
+      </article>
+      <article class="plan-card" data-plan="Autoridade + Landing Page">
+        <span>Captação</span>
+        <h3>Autoridade + Landing Page</h3>
+        <p>R$ 1.119,99/mês</p>
+        <ul><li>Conteúdo + gestão</li><li>Landing pages</li><li>Captação</li><li>12 meses</li></ul>
+      </article>
+      <article class="plan-card" data-plan="Autoridade + Site">
+        <span>Completo</span>
+        <h3>Autoridade + Site</h3>
+        <p>R$ 1.219,90/mês</p>
+        <ul><li>Conteúdo + gestão</li><li>Site estratégico</li><li>Escala</li><li>12 meses</li></ul>
+      </article>
     </section>
 
     <section class="panel form-panel">
-      <div class="section-head">
-        <h2 id="formTitle">Cadastrar lead/cliente</h2>
-        <button id="clearFormBtn" class="btn btn-ghost">Limpar</button>
-      </div>
+      <div class="selected"><span>Plano selecionado</span><strong id="selectedPlanLabel">Essencial</strong></div>
+      <h2>Preencha seus dados</h2>
+      <p class="help">Essas informações serão enviadas para a AXIS 1 pelo WhatsApp.</p>
 
-      <form id="clientForm">
-        <input type="hidden" id="recordId" />
+      <form id="leadForm">
         <div class="grid">
-          <label>Nome/Razão social
-            <input id="name" required placeholder="Ex: Clínica Exemplo" />
-          </label>
-          <label>CNPJ/CPF
-            <input id="documentNumber" placeholder="Ex: 39.385.385/0001-98" />
-          </label>
-          <label>WhatsApp
-            <input id="phone" required placeholder="Ex: 16997424912" />
-          </label>
-          <label>E-mail
-            <input id="email" type="email" placeholder="cliente@email.com" />
-          </label>
-          <label>Plano
-            <select id="plan" required>
-              <option value="">Selecione</option>
-              <option value="Essencial">Essencial</option>
-              <option value="Estratégico">Estratégico</option>
-              <option value="Autoridade">Autoridade</option>
-              <option value="Autoridade + Landing Page">Autoridade + Landing Page</option>
-              <option value="Autoridade + Site">Autoridade + Site</option>
-              <option value="Outro">Outro</option>
-            </select>
-          </label>
-          <label>Valor mensal
-            <input id="value" type="text" placeholder="Ex: 549,90" />
-          </label>
-          <label>Status
-            <select id="status" required>
-              <option value="Lead">Lead</option>
-              <option value="Ativo">Ativo</option>
-              <option value="Pausado">Pausado</option>
-              <option value="Cancelado">Cancelado</option>
-            </select>
-          </label>
-          <label>Forma de pagamento
-            <select id="paymentType">
-              <option value="1x">Mensal / 1x</option>
-              <option value="2x">2x no mês</option>
-            </select>
-          </label>
-          <label>Data do primeiro contato
-            <input id="firstContactDate" type="date" />
-          </label>
-          <label>Data de início
-            <input id="startDate" type="date" />
-          </label>
-          <label>Vencimento mensal / parcela 1
-            <input id="dueDate" type="date" />
-          </label>
-          <label id="dueDate2Wrap" class="hidden">Vencimento parcela 2
-            <input id="dueDate2" type="date" />
-          </label>
+          <label>Nome / Empresa*<input id="leadName" required placeholder="Ex: Clínica Exemplo" /></label>
+          <label>WhatsApp*<input id="leadPhone" required placeholder="Ex: (16) 99999-9999" /></label>
+          <label>E-mail<input id="leadEmail" type="email" placeholder="contato@email.com" /></label>
+          <label>CNPJ / CPF<input id="leadDocument" placeholder="00.000.000/0000-00" /></label>
         </div>
-
-        <label>Observações
-          <textarea id="notes" rows="3" placeholder="Ex: origem do lead, combinado financeiro, detalhes do plano..."></textarea>
-        </label>
-
-        <div class="form-actions">
-          <button class="btn btn-primary" type="submit">Salvar cadastro</button>
-        </div>
+        <button type="submit" class="btn btn-primary full">Quero esse plano</button>
       </form>
-    </section>
-
-    <section class="panel">
-      <div class="section-head table-head">
-        <h2>Cadastros</h2>
-        <div class="filters">
-          <input id="searchInput" placeholder="Buscar por nome, CNPJ, plano ou telefone..." />
-          <select id="statusFilter">
-            <option value="Todos">Todos</option>
-            <option value="Lead">Leads</option>
-            <option value="Ativo">Ativos</option>
-            <option value="Pausado">Pausados</option>
-            <option value="Cancelado">Cancelados</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Contato</th>
-              <th>CNPJ/CPF</th>
-              <th>Plano</th>
-              <th>Valor</th>
-              <th>Status</th>
-              <th>Pagamento</th>
-              <th>Vencimento(s)</th>
-              <th>Último pagamento</th>
-              <th>Ações</th>
-            </tr>
-          </thead>
-          <tbody id="recordsTable"></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="panel trash-panel">
-      <div class="section-head">
-        <h2>Lixeira temporária</h2>
-        <button id="clearTrashBtn" class="btn btn-danger">Esvaziar lixeira</button>
-      </div>
-      <div id="trashList" class="trash-list"></div>
+      <p id="successMessage" class="success hidden">Cadastro preparado com sucesso. Confira o WhatsApp e clique em enviar.</p>
     </section>
   </main>
 
-  <dialog id="historyDialog">
-    <div class="modal-head">
-      <h2>Histórico de pagamentos</h2>
-      <button id="closeHistoryBtn" class="btn btn-ghost">Fechar</button>
-    </div>
-    <div id="historyContent"></div>
-  </dialog>
-
-  <div id="toast" class="toast"></div>
+  <footer><strong>AXIS 1</strong><span>Where marketing strategy begins</span></footer>
   <script src="script.js"></script>
 </body>
 </html>
