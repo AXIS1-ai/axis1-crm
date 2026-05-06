@@ -505,3 +505,62 @@ $("clearTrashBtn").onclick=clearTrash;
 loadGoal();
 toggleDue2();
 render();
+
+
+// ===== IMPORTADOR AUTOMÁTICO DE LEADS =====
+
+(function importLeadFromURL() {
+  const params = new URLSearchParams(window.location.search);
+  const importLead = params.get("importLead");
+
+  if (!importLead) return;
+
+  try {
+    const lead = JSON.parse(decodeURIComponent(importLead));
+
+    const storageKey = "axis1_crm_v2_insano";
+    const current = JSON.parse(localStorage.getItem(storageKey) || "[]");
+
+    const alreadyExists = current.some(item =>
+      item.phone === lead.phone &&
+      item.name === lead.name
+    );
+
+    if (!alreadyExists) {
+      const newLead = {
+        id: "axis-" + Date.now(),
+        name: lead.name || "",
+        documentNumber: lead.documentNumber || "",
+        phone: lead.phone || "",
+        email: lead.email || "",
+        plan: lead.plan || "",
+        value: 0,
+        status: "Lead",
+        paymentType: "1x",
+        firstContactDate: lead.firstContactDate || "",
+        startDate: "",
+        dueDate: "",
+        dueDate2: "",
+        notes: lead.notes || "Origem: Proposta AXIS 1",
+        lastPaidDate: null,
+        paymentHistory: []
+      };
+
+      current.unshift(newLead);
+
+      localStorage.setItem(storageKey, JSON.stringify(current));
+
+      alert("Lead importado automaticamente no CRM 😈🔥");
+
+      window.history.replaceState({}, document.title, window.location.pathname);
+
+      location.reload();
+    } else {
+      alert("Esse lead já existe no CRM.");
+    }
+
+  } catch (error) {
+    console.error(error);
+    alert("Erro ao importar lead.");
+  }
+})();
