@@ -271,7 +271,11 @@ function markAsClient(id){
 function registerPayment(id, installment){
   const r=records.find(x=>x.id===id);
   if(!r) return;
-  const amount = r.paymentType==="2x" ? (r.value/2) : r.value;
+  const amount = r.paymentType==="2x"
+  ? (installment===1
+      ? Math.round((r.value * 0.60) * 100) / 100
+      : Math.round((r.value * 0.40) * 100) / 100)
+  : r.value;
   const previousDueDate = installment===2 ? r.dueDate2 : r.dueDate;
   r.lastPaidDate=todayStr();
   r.paymentHistory=r.paymentHistory||[];
@@ -438,7 +442,8 @@ function renderTable(){
     const overdue = r.status==="Ativo" && ((r.dueDate&&daysBetween(r.dueDate)<0&&!isPaymentRegisteredThisCycle(r,1)) || (r.paymentType==="2x"&&r.dueDate2&&daysBetween(r.dueDate2)<0&&!isPaymentRegisteredThisCycle(r,2)));
     const tr=document.createElement("tr");
     if(overdue) tr.classList.add("row-overdue");
-    const payText = r.paymentType==="2x" ? `2x (${formatMoney(r.value/2)} + ${formatMoney(r.value/2)})` : "Mensal / 1x";
+    const payText = r.paymentType==="2x"
+  ? `2x (${formatMoney(Math.round((r.value * 0.60) * 100) / 100)} + ${formatMoney(Math.round((r.value * 0.40) * 100) / 100)})` + ${formatMoney(r.value/2)})` : "Mensal / 1x";
     const dueText = r.paymentType==="2x" ? `1ª: ${formatDate(r.dueDate)}<br>2ª: ${formatDate(r.dueDate2)}` : formatDate(r.dueDate);
     const actions=[`<button class="btn btn-secondary btn-small" data-action="edit">Editar</button>`,`<button class="btn btn-secondary btn-small" data-action="history">Histórico</button>`];
     if(r.status==="Lead"){actions.push(`<button class="btn btn-primary btn-small" data-action="follow">Follow-up</button>`,`<button class="btn btn-warning btn-small" data-action="client">Virou cliente</button>`)}
