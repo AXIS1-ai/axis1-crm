@@ -443,7 +443,8 @@ function renderTable(){
     const tr=document.createElement("tr");
     if(overdue) tr.classList.add("row-overdue");
     const payText = r.paymentType==="2x"
-  ? `2x (${formatMoney(r.value/2)} + ${formatMoney(r.value/2)})` : "Mensal / 1x";
+  ? `2x (${formatMoney(Math.round((r.value * 0.60) * 100) / 100)} + ${formatMoney(Math.round((r.value * 0.40) * 100) / 100)})`
+  : "Mensal / 1x";
     const dueText = r.paymentType==="2x" ? `1ª: ${formatDate(r.dueDate)}<br>2ª: ${formatDate(r.dueDate2)}` : formatDate(r.dueDate);
     const actions=[`<button class="btn btn-secondary btn-small" data-action="edit">Editar</button>`,`<button class="btn btn-secondary btn-small" data-action="history">Histórico</button>`];
     if(r.status==="Lead"){actions.push(`<button class="btn btn-primary btn-small" data-action="follow">Follow-up</button>`,`<button class="btn btn-warning btn-small" data-action="client">Virou cliente</button>`)}
