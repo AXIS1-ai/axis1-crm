@@ -3,180 +3,259 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CRM AXIS 1 v2 Insano</title>
+  <title>CRM AXIS 1 v3</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header class="topbar">
     <div>
       <p class="eyebrow">AXIS 1</p>
-      <h1>CRM v2 Insano</h1>
-      <p class="subtitle">Leads, clientes, CNPJ, financeiro, 2x, follow-up, cobrança e backup nível Deus.</p>
+      <h1>CRM v3</h1>
+      <p class="subtitle">Leads, clientes, financeiro e dados protegidos em uma base mais segura.</p>
     </div>
-    <div class="top-actions">
-      <button id="exportBackupBtn" class="btn btn-secondary">Exportar backup</button>
-      <label class="btn btn-secondary file-label">
-        Importar backup universal
-        <input type="file" id="importBackupInput" accept=".json" />
-      </label>
-      <button id="restoreSnapshotBtn" class="btn btn-warning">Restaurar versão anterior</button>
-    </div>
+    <div class="version-pill">Etapa 1 • Base e segurança</div>
   </header>
 
+  <nav class="tabs" aria-label="Navegação principal">
+    <button class="tab-button active" type="button" data-tab="dashboard" aria-selected="true">Dashboard</button>
+    <button class="tab-button" type="button" data-tab="records" aria-selected="false">Cadastros</button>
+    <button class="tab-button" type="button" data-tab="security" aria-selected="false">Backup e Segurança</button>
+  </nav>
+
   <main class="layout">
-    <section class="panel protection">
-      <div>
-        <h2>Proteção nível Deus</h2>
-        <p>Importa backups antigos, cria versões internas, tem lixeira temporária e valida dados importantes antes de salvar.</p>
-      </div>
-      <div class="goal-box">
-        <label>Meta mensal
-          <input id="monthlyGoal" placeholder="Ex: 10000" />
-        </label>
-        <button id="saveGoalBtn" class="btn btn-primary">Salvar meta</button>
-      </div>
+    <section class="tab-panel active" data-tab-panel="dashboard">
+      <section class="panel protection">
+        <div>
+          <h2>Visão geral</h2>
+          <p>Acompanhe os indicadores principais, vencimentos e follow-ups sem perder o controle da operação.</p>
+        </div>
+        <div class="goal-box">
+          <label>Meta mensal
+            <input id="monthlyGoal" inputmode="decimal" placeholder="Ex: 10000" />
+          </label>
+          <button id="saveGoalBtn" class="btn btn-primary" type="button">Salvar meta</button>
+        </div>
+      </section>
+
+      <section class="cards">
+        <article class="metric-card"><span>Recebido no mês</span><strong id="receivedMonth">R$ 0,00</strong></article>
+        <article class="metric-card"><span>Falta para meta</span><strong id="remainingGoal">R$ 0,00</strong></article>
+        <article class="metric-card"><span>Receita ativa mensal</span><strong id="activeRevenue">R$ 0,00</strong></article>
+        <article class="metric-card"><span>Clientes ativos</span><strong id="activeCount">0</strong></article>
+        <article class="metric-card"><span>Leads abertos</span><strong id="leadCount">0</strong></article>
+        <article class="metric-card danger"><span>Atrasados</span><strong id="overdueCount">0</strong></article>
+      </section>
+
+      <section class="panel">
+        <h2>Alertas inteligentes</h2>
+        <div id="alertsList" class="alerts-list"></div>
+      </section>
     </section>
 
-    <section class="cards">
-      <article class="metric-card"><span>Recebido no mês</span><strong id="receivedMonth">R$ 0,00</strong></article>
-      <article class="metric-card"><span>Falta para meta</span><strong id="remainingGoal">R$ 0,00</strong></article>
-      <article class="metric-card"><span>Receita ativa mensal</span><strong id="activeRevenue">R$ 0,00</strong></article>
-      <article class="metric-card"><span>Clientes ativos</span><strong id="activeCount">0</strong></article>
-      <article class="metric-card"><span>Leads abertos</span><strong id="leadCount">0</strong></article>
-      <article class="metric-card danger"><span>Atrasados</span><strong id="overdueCount">0</strong></article>
-    </section>
-
-    <section class="panel">
-      <h2>Alertas inteligentes</h2>
-      <div id="alertsList" class="alerts-list"></div>
-    </section>
-
-    <section class="panel form-panel">
-      <div class="section-head">
-        <h2 id="formTitle">Cadastrar lead/cliente</h2>
-        <button id="clearFormBtn" class="btn btn-ghost">Limpar</button>
-      </div>
-
-      <form id="clientForm">
-        <input type="hidden" id="recordId" />
-        <div class="grid">
-          <label>Nome/Razão social
-            <input id="name" required placeholder="Ex: Clínica Exemplo" />
-          </label>
-          <label>CNPJ/CPF
-            <input id="documentNumber" placeholder="Ex: 39.385.385/0001-98" />
-          </label>
-          <label>WhatsApp
-            <input id="phone" required placeholder="Ex: 16997424912" />
-          </label>
-          <label>E-mail
-            <input id="email" type="email" placeholder="cliente@email.com" />
-          </label>
-          <label>Plano
-            <select id="plan" required>
-              <option value="">Selecione</option>
-              <option value="Essencial">Essencial</option>
-              <option value="Estratégico">Estratégico</option>
-              <option value="Autoridade">Autoridade</option>
-              <option value="Autoridade + Landing Page">Autoridade + Landing Page</option>
-              <option value="Autoridade + Site">Autoridade + Site</option>
-              <option value="Outro">Outro</option>
-            </select>
-          </label>
-          <label>Valor mensal
-            <input id="value" type="text" placeholder="Ex: 549,90" />
-          </label>
-          <label>Status
-            <select id="status" required>
-              <option value="Lead">Lead</option>
-              <option value="Ativo">Ativo</option>
-              <option value="Pausado">Pausado</option>
-              <option value="Cancelado">Cancelado</option>
-            </select>
-          </label>
-          <label>Forma de pagamento
-            <select id="paymentType">
-              <option value="1x">Mensal / 1x</option>
-              <option value="2x">2x no mês</option>
-            </select>
-          </label>
-          <label>Data do primeiro contato
-            <input id="firstContactDate" type="date" />
-          </label>
-          <label>Data de início
-            <input id="startDate" type="date" />
-          </label>
-          <label>Vencimento mensal / parcela 1
-            <input id="dueDate" type="date" />
-          </label>
-          <label id="dueDate2Wrap" class="hidden">Vencimento parcela 2
-            <input id="dueDate2" type="date" />
-          </label>
+    <section class="tab-panel" data-tab-panel="records">
+      <section class="panel form-panel">
+        <div class="section-head">
+          <div>
+            <p class="section-kicker">Relacionamento</p>
+            <h2 id="formTitle">Cadastrar lead/cliente</h2>
+          </div>
+          <button id="clearFormBtn" class="btn btn-ghost" type="button">Limpar</button>
         </div>
 
-        <label>Observações
-          <textarea id="notes" rows="3" placeholder="Ex: origem do lead, combinado financeiro, detalhes do plano..."></textarea>
-        </label>
+        <form id="clientForm">
+          <input type="hidden" id="recordId" />
+          <div class="grid">
+            <label>Nome/Razão social
+              <input id="name" required placeholder="Ex: Clínica Exemplo" />
+            </label>
+            <label>CNPJ/CPF
+              <input id="documentNumber" inputmode="numeric" placeholder="Ex: 39.385.385/0001-98" />
+            </label>
+            <label>WhatsApp
+              <input id="phone" required inputmode="tel" placeholder="Ex: 16997424912" />
+            </label>
+            <label>E-mail
+              <input id="email" type="email" placeholder="cliente@email.com" />
+            </label>
+            <label>Plano
+              <select id="plan" required>
+                <option value="">Selecione</option>
+                <option value="Essencial">Essencial</option>
+                <option value="Estratégico">Estratégico</option>
+                <option value="Autoridade">Autoridade</option>
+                <option value="Autoridade + Landing Page">Autoridade + Landing Page</option>
+                <option value="Autoridade + Site">Autoridade + Site</option>
+                <option value="Outro">Outro</option>
+              </select>
+            </label>
+            <label>Valor mensal
+              <input id="value" type="text" inputmode="decimal" placeholder="Ex: 549,90" />
+            </label>
+            <label>Status
+              <select id="status" required>
+                <option value="Lead">Lead</option>
+                <option value="Ativo">Ativo</option>
+                <option value="Pausado">Pausado</option>
+                <option value="Cancelado">Cancelado</option>
+              </select>
+            </label>
+            <label>Forma de pagamento
+              <select id="paymentType">
+                <option value="1x">Mensal / 1x</option>
+                <option value="2x">2x no mês</option>
+              </select>
+            </label>
+            <label>Data do primeiro contato
+              <input id="firstContactDate" type="date" />
+            </label>
+            <label>Data de início
+              <input id="startDate" type="date" />
+            </label>
+            <label>Vencimento mensal / parcela 1
+              <input id="dueDate" type="date" />
+            </label>
+            <label id="dueDate2Wrap" class="hidden">Vencimento parcela 2
+              <input id="dueDate2" type="date" />
+            </label>
+          </div>
 
-        <div class="form-actions">
-          <button class="btn btn-primary" type="submit">Salvar cadastro</button>
+          <label>Observações
+            <textarea id="notes" rows="3" placeholder="Ex: origem do lead, combinado financeiro, detalhes do plano..."></textarea>
+          </label>
+
+          <div class="form-actions">
+            <button class="btn btn-primary" type="submit">Salvar cadastro</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel">
+        <div class="section-head table-head">
+          <div>
+            <p class="section-kicker">Base comercial</p>
+            <h2>Cadastros</h2>
+          </div>
+          <div class="filters">
+            <input id="searchInput" placeholder="Buscar por nome, CNPJ, plano ou telefone..." />
+            <select id="statusFilter" aria-label="Filtrar por status">
+              <option value="Todos">Todos</option>
+              <option value="Lead">Leads</option>
+              <option value="Ativo">Ativos</option>
+              <option value="Pausado">Pausados</option>
+              <option value="Cancelado">Cancelados</option>
+            </select>
+          </div>
         </div>
-      </form>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Contato</th>
+                <th>CNPJ/CPF</th>
+                <th>Plano</th>
+                <th>Valor</th>
+                <th>Status</th>
+                <th>Pagamento</th>
+                <th>Vencimento(s)</th>
+                <th>Último pagamento</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="recordsTable"></tbody>
+          </table>
+        </div>
+      </section>
     </section>
 
-    <section class="panel">
-      <div class="section-head table-head">
-        <h2>Cadastros</h2>
-        <div class="filters">
-          <input id="searchInput" placeholder="Buscar por nome, CNPJ, plano ou telefone..." />
-          <select id="statusFilter">
-            <option value="Todos">Todos</option>
-            <option value="Lead">Leads</option>
-            <option value="Ativo">Ativos</option>
-            <option value="Pausado">Pausados</option>
-            <option value="Cancelado">Cancelados</option>
-          </select>
+    <section class="tab-panel" data-tab-panel="security">
+      <section class="panel protection security-hero">
+        <div>
+          <h2>Backup e Segurança</h2>
+          <p>Exporte uma cópia completa, importe dados antigos ou recupere uma versão anterior com segurança.</p>
         </div>
-      </div>
+        <span id="snapshotSummary" class="security-status">Nenhuma versão anterior</span>
+      </section>
 
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Contato</th>
-              <th>CNPJ/CPF</th>
-              <th>Plano</th>
-              <th>Valor</th>
-              <th>Status</th>
-              <th>Pagamento</th>
-              <th>Vencimento(s)</th>
-              <th>Último pagamento</th>
-              <th>Ações</th>
-            </tr>
-          </thead>
-          <tbody id="recordsTable"></tbody>
-        </table>
-      </div>
-    </section>
+      <section class="security-grid">
+        <article class="panel security-card">
+          <span class="security-icon">01</span>
+          <h2>Backup completo</h2>
+          <p>Inclui cadastros, lixeira, meta mensal e versões anteriores.</p>
+          <div class="security-actions">
+            <button id="exportBackupBtn" class="btn btn-primary" type="button">Exportar backup</button>
+            <label class="btn btn-secondary file-label">
+              Importar backup
+              <input type="file" id="importBackupInput" accept=".json,application/json" />
+            </label>
+          </div>
+        </article>
 
-    <section class="panel trash-panel">
-      <div class="section-head">
-        <h2>Lixeira temporária</h2>
-        <button id="clearTrashBtn" class="btn btn-danger">Esvaziar lixeira</button>
-      </div>
-      <div id="trashList" class="trash-list"></div>
+        <article class="panel security-card">
+          <span class="security-icon">02</span>
+          <h2>Versões anteriores</h2>
+          <p>Consulte até 10 estados salvos antes de alterações importantes.</p>
+          <div class="security-actions">
+            <button id="restoreSnapshotBtn" class="btn btn-warning" type="button">Ver versões anteriores</button>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel trash-panel">
+        <div class="section-head">
+          <div>
+            <p class="section-kicker">Recuperação</p>
+            <h2>Lixeira temporária</h2>
+          </div>
+          <button id="clearTrashBtn" class="btn btn-danger" type="button">Esvaziar lixeira</button>
+        </div>
+        <div id="trashList" class="trash-list"></div>
+      </section>
     </section>
   </main>
 
   <dialog id="historyDialog">
     <div class="modal-head">
       <h2>Histórico de pagamentos</h2>
-      <button id="closeHistoryBtn" class="btn btn-ghost">Fechar</button>
+      <button id="closeHistoryBtn" class="btn btn-ghost" type="button">Fechar</button>
     </div>
     <div id="historyContent"></div>
   </dialog>
 
-  <div id="toast" class="toast"></div>
+  <dialog id="snapshotsDialog">
+    <div class="modal-head">
+      <div>
+        <p class="section-kicker">Recuperação segura</p>
+        <h2>Versões anteriores</h2>
+      </div>
+      <button id="closeSnapshotsBtn" class="btn btn-ghost" type="button">Fechar</button>
+    </div>
+    <p class="modal-description">Cada versão representa o estado completo imediatamente anterior a uma alteração.</p>
+    <div id="snapshotsList" class="snapshots-list"></div>
+  </dialog>
+
+  <dialog id="importDialog">
+    <div class="modal-head">
+      <div>
+        <p class="section-kicker">Importar backup</p>
+        <h2>Como deseja importar?</h2>
+      </div>
+      <button id="closeImportBtn" class="btn btn-ghost" type="button">Fechar</button>
+    </div>
+    <p id="importFileInfo" class="modal-description"></p>
+    <div class="import-options">
+      <button id="replaceImportBtn" class="import-option" type="button">
+        <strong>Substituir todos os dados atuais</strong>
+        <span>Troca cadastros, lixeira, meta e versões pelo conteúdo do backup.</span>
+      </button>
+      <button id="mergeImportBtn" class="import-option" type="button">
+        <strong>Mesclar com os dados atuais</strong>
+        <span>Evita duplicados e preserva as informações mais completas.</span>
+      </button>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="script.js"></script>
 </body>
 </html>

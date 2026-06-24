@@ -1,8 +1,21 @@
+const SCHEMA_VERSION = 3;
 const STORAGE_KEY = "axis1_crm_v2_insano";
-const LEGACY_KEYS = ["axis1_crm_v2_insano","axis1_crm_definitivo_v1","axis1_crm_integrado_v1","axis1_crm_records","axis1_crm_clientes","axis1_clientes","crmAxis1","clientesAxis1","axis1-crm","crm"];
+const LEGACY_KEYS = [
+  "axis1_crm_v2_insano",
+  "axis1_crm_definitivo_v1",
+  "axis1_crm_integrado_v1",
+  "axis1_crm_records",
+  "axis1_crm_clientes",
+  "axis1_clientes",
+  "crmAxis1",
+  "clientesAxis1",
+  "axis1-crm",
+  "crm"
+];
 const SNAPSHOT_KEY = "axis1_crm_v2_snapshots";
 const TRASH_KEY = "axis1_crm_v2_trash";
 const GOAL_KEY = "axis1_crm_v2_goal";
+const MAX_SNAPSHOTS = 10;
 
 const planValues = {
   "Essencial": 399.90,
@@ -14,559 +27,1267 @@ const planValues = {
 
 const $ = (id) => document.getElementById(id);
 
-function uid(){return "axis-"+Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
-function onlyDigits(v){return String(v||"").replace(/\D/g,"")}
-function todayStr(){return new Date().toISOString().slice(0,10)}
-function parseMoney(value){
-  if(typeof value==="number") return value;
-  if(!value) return 0;
-  let text=String(value).replace(/[^\d,.-]/g,"");
-  if(text.includes(",")&&text.includes(".")) text=text.replace(/\./g,"").replace(",",".");
-  else text=text.replace(",",".");
-  return Number(text)||0;
+function uid(prefix = "axis") {
+  return `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
-function formatMoney(value){return (Number(value)||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"})}
-function formatDate(dateStr){
-  if(!dateStr) return "-";
-  const [y,m,d]=String(dateStr).split("-");
-  if(!y||!m||!d) return "-";
-  return `${d}/${m}/${y}`;
+
+function cloneData(value) {
+  return JSON.parse(JSON.stringify(value));
 }
-function daysBetween(dateStr){
-  const today=new Date(`${todayStr()}T12:00:00`);
-  const target=new Date(`${dateStr}T12:00:00`);
-  return Math.round((target-today)/86400000);
+
+function onlyDigits(value) {
+  return String(value || "").replace(/\D/g, "");
 }
-function addOneMonth(dateStr){
-  if(!dateStr) return "";
-  const d=new Date(`${dateStr}T12:00:00`);
-  const day=d.getDate();
-  d.setMonth(d.getMonth()+1);
-  if(d.getDate()!==day)d.setDate(0);
-  return d.toISOString().slice(0,10);
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#039;"
+  })[char]);
 }
-function normalizePhone(v){
-  const digits=onlyDigits(v);
-  if(digits.startsWith("55")) return digits;
-  return "55"+digits;
+
+function todayStr() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
-function normalizeStatus(status){
-  const s=String(status||"").trim().toLowerCase();
-  if(s.includes("ativo")) return "Ativo";
-  if(s.includes("paus")) return "Pausado";
-  if(s.includes("cancel")) return "Cancelado";
-  if(s.includes("lead")) return "Lead";
-  return status||"Lead";
+
+function parseMoney(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (!value) return 0;
+  let text = String(value).replace(/[^\d,.-]/g, "");
+  if (text.includes(",") && text.includes(".")) {
+    text = text.replace(/\./g, "").replace(",", ".");
+  } else {
+    text = text.replace(",", ".");
+  }
+  return Number(text) || 0;
 }
-function validateCpfCnpj(value){
-  const digits=onlyDigits(value);
-  if(!digits) return true;
-  if(digits.length===11) return !/^(\d)\1+$/.test(digits);
-  if(digits.length===14) return !/^(\d)\1+$/.test(digits);
-  return false;
+
+function formatMoney(value) {
+  return (Number(value) || 0).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL"
+  });
 }
-function formatDoc(value){
-  const d=onlyDigits(value);
-  if(d.length===11) return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/,"$1.$2.$3-$4");
-  if(d.length===14) return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/,"$1.$2.$3/$4-$5");
-  return value || "";
+
+function formatDate(dateStr) {
+  if (!dateStr) return "-";
+  const [year, month, day] = String(dateStr).split("-");
+  if (!year || !month || !day) return "-";
+  return `${day}/${month}/${year}`;
 }
-function normalizeRecord(r){
-  const paymentType = r.paymentType || r.tipoPagamento || r.formaPagamento || r.forma_pagamento || "1x";
-  const value = parseMoney(r.value ?? r.valor ?? r.valorMensal ?? r.valor_mensal ?? r.investimento ?? 0);
-  const history = Array.isArray(r.paymentHistory) ? r.paymentHistory : (Array.isArray(r.historicoPagamentos) ? r.historicoPagamentos : []);
+
+function formatDateTime(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString("pt-BR");
+}
+
+function daysBetween(dateStr) {
+  if (!dateStr) return Number.NaN;
+  const today = new Date(`${todayStr()}T12:00:00`);
+  const target = new Date(`${dateStr}T12:00:00`);
+  return Math.round((target - today) / 86400000);
+}
+
+function addOneMonth(dateStr) {
+  if (!dateStr) return "";
+  const date = new Date(`${dateStr}T12:00:00`);
+  const day = date.getDate();
+  date.setMonth(date.getMonth() + 1);
+  if (date.getDate() !== day) date.setDate(0);
+  return date.toISOString().slice(0, 10);
+}
+
+function normalizePhone(value) {
+  let digits = onlyDigits(value);
+  if ((digits.length === 12 || digits.length === 13) && digits.startsWith("55")) {
+    digits = digits.slice(2);
+  }
+  return digits;
+}
+
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizeDocument(value) {
+  return onlyDigits(value);
+}
+
+function normalizeStatus(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "ativo" || normalized === "cliente" || normalized === "active") return "Ativo";
+  if (normalized.includes("paus")) return "Pausado";
+  if (normalized.includes("cancel")) return "Cancelado";
+  return "Lead";
+}
+
+function validateCpf(value) {
+  const cpf = normalizeDocument(value);
+  if (cpf.length !== 11 || /^(\d)\1+$/.test(cpf)) return false;
+
+  const calculateDigit = (length) => {
+    let sum = 0;
+    for (let index = 0; index < length; index += 1) {
+      sum += Number(cpf[index]) * (length + 1 - index);
+    }
+    const remainder = (sum * 10) % 11;
+    return remainder === 10 ? 0 : remainder;
+  };
+
+  return calculateDigit(9) === Number(cpf[9]) && calculateDigit(10) === Number(cpf[10]);
+}
+
+function validateCnpj(value) {
+  const cnpj = normalizeDocument(value);
+  if (cnpj.length !== 14 || /^(\d)\1+$/.test(cnpj)) return false;
+
+  const calculateDigit = (baseLength) => {
+    const weights = baseLength === 12
+      ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
+      : [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+    const sum = weights.reduce((total, weight, index) => total + Number(cnpj[index]) * weight, 0);
+    const remainder = sum % 11;
+    return remainder < 2 ? 0 : 11 - remainder;
+  };
+
+  return calculateDigit(12) === Number(cnpj[12]) && calculateDigit(13) === Number(cnpj[13]);
+}
+
+function validateEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value));
+}
+
+function formatDoc(value) {
+  const digits = normalizeDocument(value);
+  if (digits.length === 11) {
+    return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+  }
+  if (digits.length === 14) {
+    return digits.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
+  }
+  return digits;
+}
+
+function normalizeRecord(record = {}) {
+  const paymentType = record.paymentType || record.tipoPagamento || record.formaPagamento || record.forma_pagamento || "1x";
+  const value = parseMoney(record.value ?? record.valor ?? record.valorMensal ?? record.valor_mensal ?? record.investimento ?? 0);
+  const history = Array.isArray(record.paymentHistory)
+    ? record.paymentHistory
+    : (Array.isArray(record.historicoPagamentos) ? record.historicoPagamentos : []);
+
   return {
-    id: r.id || uid(),
-    name: String(r.name || r.nome || r.cliente || r.razaoSocial || r.razao_social || r.razao || r.empresa || "").trim(),
-    documentNumber: onlyDigits(r.documentNumber || r.cnpj || r.cpf || r.cpfCnpj || r.cpf_cnpj || r.documento || ""),
-    phone: onlyDigits(r.phone || r.telefone || r.whatsapp || r.celular || r.contato || ""),
-    email: String(r.email || r.e_mail || r.mail || "").trim(),
-    plan: String(r.plan || r.plano || r.planoContratado || r.plano_contratado || r.servico || "").trim(),
+    id: String(record.id || uid()),
+    name: String(record.name || record.nome || record.cliente || record.razaoSocial || record.razao_social || record.razao || record.empresa || "").trim(),
+    documentNumber: normalizeDocument(record.documentNumber || record.cnpj || record.cpf || record.cpfCnpj || record.cpf_cnpj || record.documento || ""),
+    phone: normalizePhone(record.phone || record.telefone || record.whatsapp || record.celular || record.contato || ""),
+    email: normalizeEmail(record.email || record.e_mail || record.mail || ""),
+    plan: String(record.plan || record.plano || record.planoContratado || record.plano_contratado || record.servico || "").trim(),
     value,
-    status: normalizeStatus(r.status || r.situacao || r.tipo),
+    status: normalizeStatus(record.status || record.situacao || record.tipo),
     paymentType: String(paymentType).includes("2") ? "2x" : "1x",
-    firstContactDate: r.firstContactDate || r.primeiroContato || r.primeiro_contato || r.dataPrimeiroContato || r.data_primeiro_contato || r.contactDate || "",
-    startDate: r.startDate || r.dataInicio || r.data_inicio || r.inicio || "",
-    dueDate: r.dueDate || r.vencimento || r.proximoVencimento || r.proximo_vencimento || r.dataVencimento || "",
-    dueDate2: r.dueDate2 || r.vencimento2 || r.segundoVencimento || r.segundo_vencimento || "",
-    notes: r.notes || r.observacoes || r.obs || r.anotacoes || "",
-    lastPaidDate: r.lastPaidDate || r.ultimoPagamento || r.ultimo_pagamento || null,
-    paymentHistory: history.map(h => ({
-      paidAt: h.paidAt || h.data || h.date || todayStr(),
-      amount: parseMoney(h.amount ?? h.valor ?? h.value ?? 0),
-      installment: h.installment || h.parcela || "Mensal",
-      previousDueDate: h.previousDueDate || h.vencimentoAnterior || "",
-      nextDueDate: h.nextDueDate || h.proximoVencimento || ""
-    }))
+    firstContactDate: record.firstContactDate || record.primeiroContato || record.primeiro_contato || record.dataPrimeiroContato || record.data_primeiro_contato || record.contactDate || "",
+    startDate: record.startDate || record.dataInicio || record.data_inicio || record.inicio || "",
+    dueDate: record.dueDate || record.vencimento || record.proximoVencimento || record.proximo_vencimento || record.dataVencimento || "",
+    dueDate2: record.dueDate2 || record.vencimento2 || record.segundoVencimento || record.segundo_vencimento || "",
+    notes: String(record.notes || record.observacoes || record.obs || record.anotacoes || "").trim(),
+    lastPaidDate: record.lastPaidDate || record.ultimoPagamento || record.ultimo_pagamento || null,
+    paymentHistory: history
+      .filter((item) => item && typeof item === "object")
+      .map((item) => ({
+        paidAt: item.paidAt || item.data || item.date || todayStr(),
+        amount: parseMoney(item.amount ?? item.valor ?? item.value ?? 0),
+        installment: String(item.installment || item.parcela || "Mensal"),
+        previousDueDate: item.previousDueDate || item.vencimentoAnterior || "",
+        nextDueDate: item.nextDueDate || item.proximoVencimento || ""
+      })),
+    deletedAt: record.deletedAt || record.excluidoEm || null
   };
 }
-function migrateArray(arr){return arr.filter(x=>x&&typeof x==="object").map(normalizeRecord)}
-function readArrayFromRaw(raw){
-  const parsed=JSON.parse(raw);
-  if(Array.isArray(parsed)) return parsed;
-  if(Array.isArray(parsed.records)) return parsed.records;
-  if(Array.isArray(parsed.clientes)) return parsed.clientes;
-  if(Array.isArray(parsed.data)) return parsed.data;
-  if(parsed.backup && Array.isArray(parsed.backup.records)) return parsed.backup.records;
-  return [];
+
+function migrateArray(value) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item) => item && typeof item === "object").map(normalizeRecord);
 }
-function findInitialData(){
-  for(const key of LEGACY_KEYS){
-    const raw=localStorage.getItem(key);
-    if(!raw) continue;
-    try{
-      const arr=readArrayFromRaw(raw);
-      if(Array.isArray(arr)&&arr.length) return migrateArray(arr);
-    }catch{}
+
+function extractRecords(data) {
+  if (Array.isArray(data)) return data;
+  if (!data || typeof data !== "object") return null;
+  if (Array.isArray(data.records)) return data.records;
+  if (Array.isArray(data.clientes)) return data.clientes;
+  if (Array.isArray(data.data)) return data.data;
+  if (data.backup && Array.isArray(data.backup.records)) return data.backup.records;
+  return null;
+}
+
+function findInitialData() {
+  for (const key of LEGACY_KEYS) {
+    const raw = localStorage.getItem(key);
+    if (!raw) continue;
+    try {
+      const extracted = extractRecords(JSON.parse(raw));
+      if (Array.isArray(extracted) && extracted.length) return migrateArray(extracted);
+      if (key === STORAGE_KEY && Array.isArray(extracted)) return [];
+    } catch {
+      // Ignora uma chave antiga corrompida e tenta a próxima.
+    }
   }
   return [];
+}
+
+function loadTrash() {
+  try {
+    return migrateArray(JSON.parse(localStorage.getItem(TRASH_KEY) || "[]"));
+  } catch {
+    return [];
+  }
+}
+
+function readGoal() {
+  return parseMoney(localStorage.getItem(GOAL_KEY) || 0);
+}
+
+function normalizeSnapshot(snapshot = {}) {
+  const source = snapshot.data && typeof snapshot.data === "object"
+    ? snapshot.data
+    : (snapshot.state && typeof snapshot.state === "object" ? snapshot.state : snapshot);
+
+  return {
+    id: String(snapshot.id || uid("snapshot")),
+    createdAt: snapshot.createdAt || snapshot.date || new Date().toISOString(),
+    reason: String(snapshot.reason || snapshot.motivo || "Versão anterior"),
+    schemaVersion: Number(snapshot.schemaVersion) || SCHEMA_VERSION,
+    data: {
+      records: migrateArray(source.records || source.clientes || []),
+      trash: migrateArray(source.trash || source.lixeira || []),
+      monthlyGoal: parseMoney(source.monthlyGoal ?? source.metaMensal ?? 0)
+    }
+  };
+}
+
+function getSnapshots() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SNAPSHOT_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed.map(normalizeSnapshot).slice(0, MAX_SNAPSHOTS) : [];
+  } catch {
+    return [];
+  }
+}
+
+function setSnapshots(snapshots) {
+  localStorage.setItem(
+    SNAPSHOT_KEY,
+    JSON.stringify(snapshots.map(normalizeSnapshot).slice(0, MAX_SNAPSHOTS))
+  );
 }
 
 let records = findInitialData();
 let trash = loadTrash();
-localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+let monthlyGoal = readGoal();
+let pendingImport = null;
 
-function toast(msg){
-  const el=$("toast");
-  el.textContent=msg;
-  el.classList.add("show");
-  setTimeout(()=>el.classList.remove("show"),3500);
+function captureState() {
+  return cloneData({ records, trash, monthlyGoal });
 }
-function getSnapshots(){
-  try{return JSON.parse(localStorage.getItem(SNAPSHOT_KEY))||[]}catch{return []}
+
+function buildSnapshot(reason, state = captureState()) {
+  return normalizeSnapshot({
+    id: uid("snapshot"),
+    createdAt: new Date().toISOString(),
+    reason,
+    schemaVersion: SCHEMA_VERSION,
+    data: state
+  });
 }
-function createSnapshot(reason){
-  const snapshots=getSnapshots();
-  snapshots.unshift({date:new Date().toISOString(), reason, records});
-  localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshots.slice(0,10)));
+
+function pushSnapshot(reason, state = captureState()) {
+  const snapshot = buildSnapshot(reason, state);
+  setSnapshots([snapshot, ...getSnapshots()]);
+  return snapshot;
 }
-function saveRecords(reason="Alteração salva"){
-  createSnapshot(reason);
+
+function persistData() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-  render();
-}
-function loadTrash(){
-  try{return JSON.parse(localStorage.getItem(TRASH_KEY))||[]}catch{return []}
-}
-function saveTrash(){
   localStorage.setItem(TRASH_KEY, JSON.stringify(trash));
+  localStorage.setItem(GOAL_KEY, String(monthlyGoal || 0));
 }
-function restoreSnapshot(){
-  const snapshots=getSnapshots();
-  if(!snapshots.length) return toast("Nenhuma versão anterior encontrada.");
-  const s=snapshots[0];
-  if(!confirm(`Restaurar versão anterior de ${new Date(s.date).toLocaleString("pt-BR")}?\nMotivo: ${s.reason}`)) return;
-  records=migrateArray(s.records||[]);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+
+function applyImportantChange(reason, mutate) {
+  pushSnapshot(reason);
+  mutate();
+  persistData();
   render();
-  toast("Versão anterior restaurada.");
 }
-function recordFromForm(){
-  const selectedPlan=$("plan").value;
-  let value=parseMoney($("value").value);
-  if(!value && planValues[selectedPlan]) value=planValues[selectedPlan];
-  const existing=records.find(r=>r.id===$("recordId").value);
-  return {
-    id:$("recordId").value || uid(),
-    name:$("name").value.trim(),
-    documentNumber:onlyDigits($("documentNumber").value),
-    phone:onlyDigits($("phone").value.trim()),
-    email:$("email").value.trim(),
-    plan:selectedPlan,
+
+function toast(message) {
+  const element = $("toast");
+  element.textContent = message;
+  element.classList.add("show");
+  window.clearTimeout(toast.timer);
+  toast.timer = window.setTimeout(() => element.classList.remove("show"), 4200);
+}
+
+function recordFromForm() {
+  const selectedPlan = $("plan").value;
+  let value = parseMoney($("value").value);
+  if (!value && planValues[selectedPlan]) value = planValues[selectedPlan];
+  const existing = records.find((record) => record.id === $("recordId").value);
+
+  return normalizeRecord({
+    id: $("recordId").value || uid(),
+    name: $("name").value,
+    documentNumber: $("documentNumber").value,
+    phone: $("phone").value,
+    email: $("email").value,
+    plan: selectedPlan,
     value,
-    status:$("status").value,
-    paymentType:$("paymentType").value,
-    firstContactDate:$("firstContactDate").value,
-    startDate:$("startDate").value,
-    dueDate:$("dueDate").value,
-    dueDate2:$("dueDate2").value,
-    notes:$("notes").value.trim(),
-    lastPaidDate:existing?.lastPaidDate || null,
-    paymentHistory:existing?.paymentHistory || []
-  };
+    status: $("status").value,
+    paymentType: $("paymentType").value,
+    firstContactDate: $("firstContactDate").value,
+    startDate: $("startDate").value,
+    dueDate: $("dueDate").value,
+    dueDate2: $("dueDate2").value,
+    notes: $("notes").value,
+    lastPaidDate: existing?.lastPaidDate || null,
+    paymentHistory: existing?.paymentHistory || []
+  });
 }
-function validateRecord(r){
-  if(!r.name) return "Informe o nome/razão social.";
-  if(r.documentNumber && !validateCpfCnpj(r.documentNumber)) return "Informe um CPF/CNPJ com 11 ou 14 dígitos válidos.";
-  if(!r.phone || r.phone.length<10 || r.phone.length>11) return "Informe um WhatsApp válido com DDD.";
-  if(r.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email)) return "Informe um e-mail válido.";
-  if(!r.plan) return "Selecione um plano.";
-  if(r.status==="Lead" && !r.firstContactDate) return "Para lead, informe a data do primeiro contato.";
-  if(r.status==="Ativo" && !r.dueDate) return "Para cliente ativo, informe o vencimento mensal ou parcela 1.";
-  if(r.status==="Ativo" && r.paymentType==="2x" && !r.dueDate2) return "Para pagamento 2x, informe o vencimento da parcela 2.";
+
+function duplicateMatch(record, collection = records, excludeId = "") {
+  const checks = [
+    { key: "phone", label: "WhatsApp", value: normalizePhone(record.phone) },
+    { key: "documentNumber", label: "CPF/CNPJ", value: normalizeDocument(record.documentNumber) },
+    { key: "email", label: "e-mail", value: normalizeEmail(record.email) }
+  ];
+
+  for (const check of checks) {
+    if (!check.value) continue;
+    const found = collection.find((item) => (
+      item.id !== excludeId && String(item[check.key] || "") === check.value
+    ));
+    if (found) return { record: found, field: check.label };
+  }
+  return null;
+}
+
+function validateRecord(record) {
+  if (!record.name) return "Informe o nome/razão social.";
+
+  if (record.documentNumber) {
+    if (record.documentNumber.length === 11 && !validateCpf(record.documentNumber)) {
+      return "O CPF informado é inválido. Confira os dígitos.";
+    }
+    if (record.documentNumber.length === 14 && !validateCnpj(record.documentNumber)) {
+      return "O CNPJ informado é inválido. Confira os dígitos.";
+    }
+    if (![11, 14].includes(record.documentNumber.length)) {
+      return "Informe um CPF com 11 dígitos ou CNPJ com 14 dígitos.";
+    }
+  }
+
+  if (!record.phone || record.phone.length < 10 || record.phone.length > 11) {
+    return "Informe um WhatsApp válido com DDD.";
+  }
+  if (record.email && !validateEmail(record.email)) {
+    return "Informe um e-mail válido.";
+  }
+  if (!record.plan) return "Selecione um plano.";
+  if (record.status === "Lead" && !record.firstContactDate) {
+    return "Para lead, informe a data do primeiro contato.";
+  }
+  if (record.status === "Ativo" && !record.dueDate) {
+    return "Para cliente ativo, informe o vencimento mensal ou parcela 1.";
+  }
+  if (record.status === "Ativo" && record.paymentType === "2x" && !record.dueDate2) {
+    return "Para pagamento 2x, informe o vencimento da parcela 2.";
+  }
+
+  const duplicate = duplicateMatch(record, records, record.id);
+  if (duplicate) {
+    return `Já existe um cadastro com o mesmo ${duplicate.field}: ${duplicate.record.name || "sem nome"}.`;
+  }
   return "";
 }
-function upsertRecord(r){
-  const idx=records.findIndex(x=>x.id===r.id);
-  if(idx>=0) records[idx]=r;
-  else records.unshift(r);
-  saveRecords("Cadastro salvo/editado");
+
+function upsertRecord(record) {
+  const index = records.findIndex((item) => item.id === record.id);
+  const reason = index >= 0
+    ? `Antes de editar o cadastro de ${record.name}`
+    : `Antes de cadastrar ${record.name}`;
+
+  applyImportantChange(reason, () => {
+    if (index >= 0) records[index] = record;
+    else records.unshift(record);
+  });
   clearForm();
   toast("Cadastro salvo com segurança.");
 }
-function clearForm(){
+
+function clearForm() {
   $("clientForm").reset();
-  $("recordId").value="";
-  $("status").value="Lead";
-  $("paymentType").value="1x";
+  $("recordId").value = "";
+  $("status").value = "Lead";
+  $("paymentType").value = "1x";
   $("dueDate2Wrap").classList.add("hidden");
-  $("formTitle").textContent="Cadastrar lead/cliente";
+  $("formTitle").textContent = "Cadastrar lead/cliente";
 }
-function fillForm(r){
-  $("recordId").value=r.id;
-  $("name").value=r.name||"";
-  $("documentNumber").value=formatDoc(r.documentNumber||"");
-  $("phone").value=r.phone||"";
-  $("email").value=r.email||"";
-  $("plan").value=r.plan||"";
-  $("value").value=r.value ? String(r.value).replace(".",",") : "";
-  $("status").value=r.status||"Lead";
-  $("paymentType").value=r.paymentType||"1x";
-  $("firstContactDate").value=r.firstContactDate||"";
-  $("startDate").value=r.startDate||"";
-  $("dueDate").value=r.dueDate||"";
-  $("dueDate2").value=r.dueDate2||"";
-  $("notes").value=r.notes||"";
+
+function fillForm(record) {
+  setActiveTab("records");
+  $("recordId").value = record.id;
+  $("name").value = record.name || "";
+  $("documentNumber").value = formatDoc(record.documentNumber || "");
+  $("phone").value = record.phone || "";
+  $("email").value = record.email || "";
+  $("plan").value = record.plan || "";
+  $("value").value = record.value ? String(record.value).replace(".", ",") : "";
+  $("status").value = record.status || "Lead";
+  $("paymentType").value = record.paymentType || "1x";
+  $("firstContactDate").value = record.firstContactDate || "";
+  $("startDate").value = record.startDate || "";
+  $("dueDate").value = record.dueDate || "";
+  $("dueDate2").value = record.dueDate2 || "";
+  $("notes").value = record.notes || "";
   toggleDue2();
-  $("formTitle").textContent="Editar cadastro";
-  window.scrollTo({top:0,behavior:"smooth"});
+  $("formTitle").textContent = "Editar cadastro";
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
-function deleteRecord(id){
-  const rec=records.find(r=>r.id===id);
-  if(!rec) return;
-  if(!confirm(`Mover "${rec.name}" para a lixeira?`)) return;
-  trash.unshift({...rec, deletedAt:new Date().toISOString()});
-  trash=trash.slice(0,20);
-  saveTrash();
-  records=records.filter(r=>r.id!==id);
-  saveRecords("Cadastro movido para lixeira");
+
+function deleteRecord(id) {
+  const record = records.find((item) => item.id === id);
+  if (!record) return;
+  if (!window.confirm(`Mover "${record.name}" para a lixeira?`)) return;
+
+  applyImportantChange(`Antes de mover ${record.name} para a lixeira`, () => {
+    trash.unshift({ ...record, deletedAt: new Date().toISOString() });
+    trash = trash.slice(0, 20);
+    records = records.filter((item) => item.id !== id);
+  });
   toast("Cadastro movido para a lixeira.");
 }
-function restoreFromTrash(id){
-  const rec=trash.find(r=>r.id===id);
-  if(!rec) return;
-  records.unshift(normalizeRecord(rec));
-  trash=trash.filter(r=>r.id!==id);
-  saveTrash();
-  saveRecords("Cadastro restaurado da lixeira");
+
+function restoreFromTrash(id) {
+  const record = trash.find((item) => item.id === id);
+  if (!record) return;
+  const duplicate = duplicateMatch(record);
+  if (duplicate) {
+    toast(`Não foi possível restaurar: já existe um cadastro com o mesmo ${duplicate.field}.`);
+    return;
+  }
+
+  applyImportantChange(`Antes de restaurar ${record.name} da lixeira`, () => {
+    records.unshift(normalizeRecord({ ...record, deletedAt: null }));
+    trash = trash.filter((item) => item.id !== id);
+  });
   toast("Cadastro restaurado.");
 }
-function clearTrash(){
-  if(!trash.length) return toast("Lixeira já está vazia.");
-  if(!confirm("Esvaziar lixeira definitivamente?")) return;
-  trash=[];
-  saveTrash();
-  renderTrash();
+
+function clearTrash() {
+  if (!trash.length) {
+    toast("Lixeira já está vazia.");
+    return;
+  }
+  if (!window.confirm("Esvaziar a lixeira definitivamente? Uma versão anterior será criada antes.")) return;
+
+  applyImportantChange("Antes de esvaziar a lixeira", () => {
+    trash = [];
+  });
   toast("Lixeira esvaziada.");
 }
-function markAsClient(id){
-  const r=records.find(x=>x.id===id);
-  if(!r) return;
-  r.status="Ativo";
-  r.startDate=r.startDate||todayStr();
-  r.dueDate=r.dueDate||addOneMonth(todayStr());
-  saveRecords("Lead convertido em cliente");
+
+function markAsClient(id) {
+  const record = records.find((item) => item.id === id);
+  if (!record) return;
+
+  applyImportantChange(`Antes de converter ${record.name} em cliente`, () => {
+    record.status = "Ativo";
+    record.startDate = record.startDate || todayStr();
+    record.dueDate = record.dueDate || addOneMonth(todayStr());
+  });
   toast("Lead convertido em cliente ativo.");
 }
-function registerPayment(id, installment){
-  const r=records.find(x=>x.id===id);
-  if(!r) return;
-  const amount = r.paymentType==="2x"
-  ? (installment===1
-      ? Math.round((r.value * 0.60) * 100) / 100
-      : Math.round((r.value * 0.40) * 100) / 100)
-  : r.value;
-  const previousDueDate = installment===2 ? r.dueDate2 : r.dueDate;
-  r.lastPaidDate=todayStr();
-  r.paymentHistory=r.paymentHistory||[];
-  r.paymentHistory.unshift({
-    paidAt: todayStr(),
-    amount,
-    installment: r.paymentType==="2x" ? `${installment}ª parcela` : "Mensal",
-    previousDueDate,
-    nextDueDate: installment===2 || r.paymentType==="1x" ? addOneMonth(previousDueDate||todayStr()) : r.dueDate2
+
+function registerPayment(id, installment) {
+  const record = records.find((item) => item.id === id);
+  if (!record) return;
+
+  const amount = record.paymentType === "2x"
+    ? (installment === 1
+      ? Math.round((record.value * 0.60) * 100) / 100
+      : Math.round((record.value * 0.40) * 100) / 100)
+    : record.value;
+  const previousDueDate = installment === 2 ? record.dueDate2 : record.dueDate;
+
+  applyImportantChange(`Antes de registrar pagamento de ${record.name}`, () => {
+    record.lastPaidDate = todayStr();
+    record.paymentHistory = record.paymentHistory || [];
+    record.paymentHistory.unshift({
+      paidAt: todayStr(),
+      amount,
+      installment: record.paymentType === "2x" ? `${installment}ª parcela` : "Mensal",
+      previousDueDate,
+      nextDueDate: installment === 2 || record.paymentType === "1x"
+        ? addOneMonth(previousDueDate || todayStr())
+        : record.dueDate2
+    });
+
+    if (record.paymentType === "1x") {
+      record.dueDate = addOneMonth(record.dueDate || todayStr());
+    } else if (installment === 2) {
+      record.dueDate = addOneMonth(record.dueDate || todayStr());
+      record.dueDate2 = addOneMonth(record.dueDate2 || todayStr());
+    }
   });
-  if(r.paymentType==="1x"){
-    r.dueDate=addOneMonth(r.dueDate||todayStr());
-  } else if(installment===2){
-    r.dueDate=addOneMonth(r.dueDate||todayStr());
-    r.dueDate2=addOneMonth(r.dueDate2||todayStr());
-  }
-  saveRecords("Pagamento registrado");
-  toast(r.paymentType==="2x" && installment===1 ? "1ª parcela registrada. 2ª parcela continua pendente." : "Pagamento registrado.");
+
+  toast(
+    record.paymentType === "2x" && installment === 1
+      ? "1ª parcela registrada. A 2ª parcela continua pendente."
+      : "Pagamento registrado."
+  );
 }
-function whatsappUrl(phone,message){return `https://wa.me/${normalizePhone(phone)}?text=${encodeURIComponent(message)}`}
-function openCharge(id, installment=1){
-  const r=records.find(x=>x.id===id);
-  if(!r) return;
-  const due = installment===2 ? r.dueDate2 : r.dueDate;
-  const parcela = r.paymentType==="2x" ? ` da ${installment}ª parcela` : "";
-  const diff=daysBetween(due);
-  const msg=diff<0
-    ? `Olá, tudo bem? Passando para lembrar que o pagamento${parcela} referente aos serviços da AXIS 1 venceu em ${formatDate(due)}. Pode me confirmar, por gentileza, a previsão de regularização?`
-    : `Olá, tudo bem? Passando para lembrar que o pagamento${parcela} referente aos serviços da AXIS 1 vence em ${formatDate(due)}. Qualquer dúvida estou à disposição.`;
-  window.open(whatsappUrl(r.phone,msg),"_blank");
+
+function whatsappUrl(phone, message) {
+  return `https://wa.me/55${normalizePhone(phone)}?text=${encodeURIComponent(message)}`;
 }
-function openFollowUp(id){
-  const r=records.find(x=>x.id===id);
-  if(!r) return;
-  const day=Math.max(1,daysBetween(r.firstContactDate)*-1);
-  const messages={
-    1:`Olá, ${r.name}! Conseguiu dar uma olhada na proposta da AXIS 1? Se fizer sentido, posso te orientar no melhor caminho para começar.`,
-    3:`Olá, ${r.name}! Passando só para reforçar: a proposta da AXIS 1 foi pensada para posicionar melhor sua marca e atrair mais clientes com estratégia.`,
-    5:`Olá, ${r.name}! Estou organizando a agenda da semana. Se quiser avançar com a proposta, consigo deixar tudo encaminhado para você.`,
-    7:`Olá, ${r.name}! Vou encerrar seu atendimento por aqui para não ficar te incomodando. Se quiser retomar depois, é só me chamar.`
+
+function openCharge(id, installment = 1) {
+  const record = records.find((item) => item.id === id);
+  if (!record) return;
+  const due = installment === 2 ? record.dueDate2 : record.dueDate;
+  const installmentText = record.paymentType === "2x" ? ` da ${installment}ª parcela` : "";
+  const difference = daysBetween(due);
+  const message = difference < 0
+    ? `Olá, tudo bem? Passando para lembrar que o pagamento${installmentText} referente aos serviços da AXIS 1 venceu em ${formatDate(due)}. Pode me confirmar, por gentileza, a previsão de regularização?`
+    : `Olá, tudo bem? Passando para lembrar que o pagamento${installmentText} referente aos serviços da AXIS 1 vence em ${formatDate(due)}. Qualquer dúvida estou à disposição.`;
+  window.open(whatsappUrl(record.phone, message), "_blank");
+}
+
+function openFollowUp(id) {
+  const record = records.find((item) => item.id === id);
+  if (!record) return;
+  const day = Math.max(1, daysBetween(record.firstContactDate) * -1);
+  const messages = {
+    1: `Olá, ${record.name}! Conseguiu dar uma olhada na proposta da AXIS 1? Se fizer sentido, posso te orientar no melhor caminho para começar.`,
+    3: `Olá, ${record.name}! Passando só para reforçar: a proposta da AXIS 1 foi pensada para posicionar melhor sua marca e atrair mais clientes com estratégia.`,
+    5: `Olá, ${record.name}! Estou organizando a agenda da semana. Se quiser avançar com a proposta, consigo deixar tudo encaminhado para você.`,
+    7: `Olá, ${record.name}! Vou encerrar seu atendimento por aqui para não ficar te incomodando. Se quiser retomar depois, é só me chamar.`
   };
-  const targetDay=[7,5,3,1].find(d=>day>=d)||1;
-  window.open(whatsappUrl(r.phone,messages[targetDay]),"_blank");
+  const targetDay = [7, 5, 3, 1].find((value) => day >= value) || 1;
+  window.open(whatsappUrl(record.phone, messages[targetDay]), "_blank");
 }
-function paymentMonthTotal(){
-  const now=new Date();
-  const y=now.getFullYear(), m=now.getMonth();
-  return records.reduce((sum,r)=>sum+(r.paymentHistory||[]).reduce((s,h)=>{
-    const d=new Date(`${h.paidAt}T12:00:00`);
-    return d.getFullYear()===y && d.getMonth()===m ? s+(Number(h.amount)||0) : s;
-  },0),0);
+
+function paymentMonthTotal() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  return records.reduce((sum, record) => sum + (record.paymentHistory || []).reduce((historySum, item) => {
+    const date = new Date(`${item.paidAt}T12:00:00`);
+    return date.getFullYear() === year && date.getMonth() === month
+      ? historySum + (Number(item.amount) || 0)
+      : historySum;
+  }, 0), 0);
 }
-function isPaymentRegisteredThisCycle(r, installment){
-  const due = installment===2 ? r.dueDate2 : r.dueDate;
-  return (r.paymentHistory||[]).some(h=>h.previousDueDate===due && String(h.installment).includes(r.paymentType==="2x"?`${installment}`:"Mensal"));
+
+function isPaymentRegisteredThisCycle(record, installment) {
+  const due = installment === 2 ? record.dueDate2 : record.dueDate;
+  if (!due) return false;
+  return (record.paymentHistory || []).some((item) => (
+    item.previousDueDate === due
+    && String(item.installment).includes(record.paymentType === "2x" ? `${installment}` : "Mensal")
+  ));
 }
-function exportBackup(){
-  const payload={exportedAt:new Date().toISOString(), version:"crm-v2-insano", records, trash, monthlyGoal:localStorage.getItem(GOAL_KEY)||""};
-  const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(blob);
-  a.download=`backup-crm-axis1-v2-insano-${todayStr()}.json`;
-  a.click();
-  URL.revokeObjectURL(a.href);
-  toast("Backup exportado.");
+
+function backupPayload() {
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    exportedAt: new Date().toISOString(),
+    records: cloneData(records),
+    trash: cloneData(trash),
+    monthlyGoal,
+    snapshots: cloneData(getSnapshots())
+  };
 }
-function importBackup(file){
-  if(!file) return;
-  const reader=new FileReader();
-  reader.onload=()=>{
-    try{
-      const data=JSON.parse(reader.result);
-      let imported = Array.isArray(data)?data:(data.records||data.clientes||data.data||data.backup?.records);
-      if(!Array.isArray(imported)) throw new Error("Formato inválido");
-      if(!confirm("Importar esse backup vai substituir os cadastros atuais deste navegador. Deseja continuar?")) return;
-      createSnapshot("Antes de importar backup");
-      records=migrateArray(imported);
-      if(Array.isArray(data.trash)) trash=migrateArray(data.trash);
-      if(data.monthlyGoal) localStorage.setItem(GOAL_KEY, data.monthlyGoal);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-      saveTrash();
-      loadGoal();
-      render();
-      toast("Backup importado e convertido automaticamente.");
-    }catch(e){toast("Não foi possível importar. Arquivo inválido ou incompatível.")}
+
+function exportBackup() {
+  const blob = new Blob([JSON.stringify(backupPayload(), null, 2)], { type: "application/json" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `backup-crm-axis1-v3-${todayStr()}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  toast("Backup completo exportado.");
+}
+
+function parseBackup(data) {
+  const extracted = extractRecords(data);
+  if (!Array.isArray(extracted)) throw new Error("Formato de backup inválido");
+  const objectData = data && typeof data === "object" && !Array.isArray(data) ? data : {};
+  const backupData = objectData.backup && typeof objectData.backup === "object"
+    ? objectData.backup
+    : {};
+  const metadata = { ...backupData, ...objectData };
+
+  return {
+    schemaVersion: Number(metadata.schemaVersion) || 1,
+    exportedAt: metadata.exportedAt || null,
+    records: migrateArray(extracted),
+    trash: migrateArray(Array.isArray(metadata.trash) ? metadata.trash : []),
+    monthlyGoal: parseMoney(metadata.monthlyGoal ?? metadata.metaMensal ?? 0),
+    snapshots: Array.isArray(metadata.snapshots)
+      ? metadata.snapshots.map(normalizeSnapshot).slice(0, MAX_SNAPSHOTS)
+      : []
+  };
+}
+
+function prepareImport(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      pendingImport = {
+        fileName: file.name,
+        backup: parseBackup(JSON.parse(reader.result))
+      };
+      const count = pendingImport.backup.records.length;
+      $("importFileInfo").textContent = `${file.name} • ${count} cadastro(s) encontrado(s)`;
+      $("importDialog").showModal();
+    } catch {
+      pendingImport = null;
+      toast("Não foi possível importar. O arquivo é inválido ou incompatível.");
+    } finally {
+      $("importBackupInput").value = "";
+    }
+  };
+  reader.onerror = () => {
+    $("importBackupInput").value = "";
+    toast("Não foi possível ler o arquivo selecionado.");
   };
   reader.readAsText(file);
 }
-function loadGoal(){
-  const g=localStorage.getItem(GOAL_KEY)||"";
-  $("monthlyGoal").value=g ? String(g).replace(".",",") : "";
+
+function mergePaymentHistory(current = [], incoming = []) {
+  const merged = [];
+  const seen = new Set();
+  [...current, ...incoming].forEach((item) => {
+    const key = [
+      item.paidAt,
+      Number(item.amount) || 0,
+      item.installment,
+      item.previousDueDate,
+      item.nextDueDate
+    ].join("|");
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(item);
+  });
+  return merged.sort((a, b) => String(b.paidAt).localeCompare(String(a.paidAt)));
 }
-function saveGoal(){
-  localStorage.setItem(GOAL_KEY, parseMoney($("monthlyGoal").value));
-  renderMetrics();
+
+function mergeMostComplete(current, incoming) {
+  const merged = { ...current, id: current.id };
+  const textFields = [
+    "documentNumber", "phone", "email", "plan",
+    "firstContactDate", "startDate", "dueDate", "dueDate2", "notes"
+  ];
+
+  textFields.forEach((field) => {
+    if (!merged[field]) merged[field] = incoming[field] || "";
+  });
+  if ((incoming.name || "").length > (merged.name || "").length) merged.name = incoming.name;
+  if ((incoming.notes || "").length > (merged.notes || "").length) merged.notes = incoming.notes;
+  if (!merged.value) merged.value = incoming.value || 0;
+  if (
+    merged.paymentType === "1x"
+    && incoming.paymentType === "2x"
+    && incoming.dueDate2
+    && !current.dueDate2
+  ) {
+    merged.paymentType = "2x";
+  }
+  if (
+    merged.status === "Lead"
+    && incoming.status === "Ativo"
+    && (incoming.startDate || incoming.dueDate)
+    && !current.startDate
+    && !current.dueDate
+  ) {
+    merged.status = "Ativo";
+  }
+  merged.lastPaidDate = [current.lastPaidDate, incoming.lastPaidDate].filter(Boolean).sort().pop() || null;
+  merged.paymentHistory = mergePaymentHistory(current.paymentHistory, incoming.paymentHistory);
+  merged.deletedAt = current.deletedAt || incoming.deletedAt || null;
+  return normalizeRecord(merged);
+}
+
+function isMeaningfulRecord(record) {
+  return Boolean(record.name || record.phone || record.documentNumber || record.email);
+}
+
+function mergeRecordCollections(currentRecords, importedRecords, stats) {
+  const mergedRecords = currentRecords.map((record) => cloneData(record));
+
+  importedRecords.forEach((incoming) => {
+    if (!isMeaningfulRecord(incoming)) {
+      stats.ignored += 1;
+      return;
+    }
+
+    const duplicate = duplicateMatch(incoming, mergedRecords);
+    if (!duplicate) {
+      const idExists = mergedRecords.some((record) => record.id === incoming.id);
+      mergedRecords.unshift({ ...incoming, id: idExists ? uid() : incoming.id });
+      stats.imported += 1;
+      return;
+    }
+
+    const index = mergedRecords.findIndex((record) => record.id === duplicate.record.id);
+    const combined = mergeMostComplete(mergedRecords[index], incoming);
+    if (JSON.stringify(combined) === JSON.stringify(mergedRecords[index])) {
+      stats.ignored += 1;
+    } else {
+      mergedRecords[index] = combined;
+      stats.merged += 1;
+    }
+  });
+
+  return mergedRecords;
+}
+
+function mergeTrashCollections(currentTrash, importedTrash) {
+  const mergedTrash = currentTrash.map((record) => cloneData(record));
+  importedTrash.forEach((incoming) => {
+    const duplicate = mergedTrash.find((record) => (
+      record.id === incoming.id
+      || (incoming.phone && record.phone === incoming.phone)
+      || (incoming.documentNumber && record.documentNumber === incoming.documentNumber)
+      || (incoming.email && record.email === incoming.email)
+    ));
+    if (!duplicate) {
+      mergedTrash.push(incoming);
+      return;
+    }
+    const index = mergedTrash.findIndex((record) => record.id === duplicate.id);
+    mergedTrash[index] = mergeMostComplete(duplicate, incoming);
+    mergedTrash[index].deletedAt = duplicate.deletedAt || incoming.deletedAt || new Date().toISOString();
+  });
+  return mergedTrash.slice(0, 20);
+}
+
+function combineSnapshots(...groups) {
+  const seen = new Set();
+  const combined = [];
+  groups.flat().forEach((snapshot) => {
+    const normalized = normalizeSnapshot(snapshot);
+    const signature = normalized.id || `${normalized.createdAt}|${normalized.reason}`;
+    if (seen.has(signature)) return;
+    seen.add(signature);
+    combined.push(normalized);
+  });
+  return combined
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+    .slice(0, MAX_SNAPSHOTS);
+}
+
+function closeImportDialog() {
+  if ($("importDialog").open) $("importDialog").close();
+  pendingImport = null;
+}
+
+function performImport(mode) {
+  if (!pendingImport) return;
+  const { backup } = pendingImport;
+  if (
+    mode === "replace"
+    && !window.confirm("Substituir todos os dados atuais pelo backup? Uma versão do estado atual será salva antes.")
+  ) return;
+
+  const stats = { imported: 0, ignored: 0, merged: 0 };
+  const safetySnapshot = pushSnapshot(
+    mode === "replace" ? "Antes de substituir os dados por um backup" : "Antes de mesclar um backup"
+  );
+  const currentSnapshots = getSnapshots();
+
+  if (mode === "replace") {
+    records = cloneData(backup.records);
+    trash = cloneData(backup.trash);
+    monthlyGoal = backup.monthlyGoal;
+    stats.imported = records.length;
+    setSnapshots(combineSnapshots(safetySnapshot, backup.snapshots));
+  } else {
+    records = mergeRecordCollections(records, backup.records, stats);
+    trash = mergeTrashCollections(trash, backup.trash);
+    if (!monthlyGoal && backup.monthlyGoal) monthlyGoal = backup.monthlyGoal;
+    setSnapshots(combineSnapshots(currentSnapshots, backup.snapshots));
+  }
+
+  persistData();
+  loadGoal();
+  render();
+  closeImportDialog();
+  toast(`Importação concluída: ${stats.imported} importado(s), ${stats.ignored} ignorado(s) e ${stats.merged} mesclado(s).`);
+}
+
+function restoreSnapshot(id) {
+  const target = getSnapshots().find((snapshot) => snapshot.id === id);
+  if (!target) {
+    toast("Essa versão não está mais disponível.");
+    return;
+  }
+  const date = formatDateTime(target.createdAt);
+  if (!window.confirm(`Restaurar a versão de ${date}?\nMotivo: ${target.reason}`)) return;
+
+  pushSnapshot(`Antes de restaurar a versão de ${date}`);
+  records = migrateArray(target.data.records);
+  trash = migrateArray(target.data.trash);
+  monthlyGoal = parseMoney(target.data.monthlyGoal);
+  persistData();
+  loadGoal();
+  render();
+  if ($("snapshotsDialog").open) $("snapshotsDialog").close();
+  toast("Versão anterior restaurada com sucesso.");
+}
+
+function loadGoal() {
+  $("monthlyGoal").value = monthlyGoal ? String(monthlyGoal).replace(".", ",") : "";
+}
+
+function saveGoal() {
+  const nextGoal = parseMoney($("monthlyGoal").value);
+  if (nextGoal === monthlyGoal) {
+    toast("A meta mensal já está atualizada.");
+    return;
+  }
+  applyImportantChange("Antes de alterar a meta mensal", () => {
+    monthlyGoal = nextGoal;
+  });
+  loadGoal();
   toast("Meta mensal salva.");
 }
-function toggleDue2(){
-  $("dueDate2Wrap").classList.toggle("hidden", $("paymentType").value!=="2x");
+
+function toggleDue2() {
+  $("dueDate2Wrap").classList.toggle("hidden", $("paymentType").value !== "2x");
 }
-function getFilteredRecords(){
-  const q=$("searchInput").value.trim().toLowerCase();
-  const status=$("statusFilter").value;
-  return records.filter(r=>{
-    const matchStatus=status==="Todos"||r.status===status;
-    const text=`${r.name} ${r.documentNumber} ${r.plan} ${r.phone} ${r.email} ${r.notes}`.toLowerCase();
-    return matchStatus && text.includes(q);
+
+function setActiveTab(tabName) {
+  document.querySelectorAll("[data-tab]").forEach((button) => {
+    const active = button.dataset.tab === tabName;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  document.querySelectorAll("[data-tab-panel]").forEach((panel) => {
+    panel.classList.toggle("active", panel.dataset.tabPanel === tabName);
   });
 }
-function buildAlerts(){
-  const alerts=[];
-  records.forEach(r=>{
-    if(r.status==="Ativo"){
-      const dues = r.paymentType==="2x" ? [{n:1,date:r.dueDate},{n:2,date:r.dueDate2}] : [{n:1,date:r.dueDate}];
-      dues.forEach(d=>{
-        if(!d.date || isPaymentRegisteredThisCycle(r,d.n)) return;
-        const diff=daysBetween(d.date);
-        const label = r.paymentType==="2x" ? `${d.n}ª parcela` : "mensalidade";
-        if(diff<0) alerts.push({urgent:true,type:"Cobrança vencida",text:`${r.name} — ${label} venceu em ${formatDate(d.date)}`,action:()=>openCharge(r.id,d.n),label:"Cobrar"});
-        if(diff===0) alerts.push({urgent:true,type:"Vence hoje",text:`${r.name} — ${label} vence hoje`,action:()=>openCharge(r.id,d.n),label:"Cobrar"});
-        if(diff>=1 && diff<=3) alerts.push({urgent:false,type:`Vence em ${diff} dia(s)`,text:`${r.name} — ${label} vence em ${formatDate(d.date)}`,action:()=>openCharge(r.id,d.n),label:"Cobrar"});
+
+function getFilteredRecords() {
+  const query = $("searchInput").value.trim().toLowerCase();
+  const status = $("statusFilter").value;
+  return records.filter((record) => {
+    const matchesStatus = status === "Todos" || record.status === status;
+    const text = [
+      record.name,
+      record.documentNumber,
+      record.plan,
+      record.phone,
+      record.email,
+      record.notes
+    ].join(" ").toLowerCase();
+    return matchesStatus && text.includes(query);
+  });
+}
+
+function buildAlerts() {
+  const alerts = [];
+  records.forEach((record) => {
+    if (record.status === "Ativo") {
+      const dues = record.paymentType === "2x"
+        ? [{ number: 1, date: record.dueDate }, { number: 2, date: record.dueDate2 }]
+        : [{ number: 1, date: record.dueDate }];
+
+      dues.forEach((due) => {
+        if (!due.date || isPaymentRegisteredThisCycle(record, due.number)) return;
+        const difference = daysBetween(due.date);
+        const label = record.paymentType === "2x" ? `${due.number}ª parcela` : "mensalidade";
+        if (difference < 0) {
+          alerts.push({
+            urgent: true,
+            type: "Cobrança vencida",
+            text: `${record.name} — ${label} venceu em ${formatDate(due.date)}`,
+            action: () => openCharge(record.id, due.number),
+            label: "Cobrar"
+          });
+        } else if (difference === 0) {
+          alerts.push({
+            urgent: true,
+            type: "Vence hoje",
+            text: `${record.name} — ${label} vence hoje`,
+            action: () => openCharge(record.id, due.number),
+            label: "Cobrar"
+          });
+        } else if (difference >= 1 && difference <= 3) {
+          alerts.push({
+            urgent: false,
+            type: `Vence em ${difference} dia(s)`,
+            text: `${record.name} — ${label} vence em ${formatDate(due.date)}`,
+            action: () => openCharge(record.id, due.number),
+            label: "Cobrar"
+          });
+        }
       });
     }
-    if(r.status==="Lead" && r.firstContactDate){
-      const day=daysBetween(r.firstContactDate)*-1;
-      if([1,3,5,7].includes(day)) alerts.push({urgent:false,type:`Follow-up dia ${day}`,text:`${r.name} precisa de follow-up`,action:()=>openFollowUp(r.id),label:"Follow-up"});
+
+    if (record.status === "Lead" && record.firstContactDate) {
+      const day = daysBetween(record.firstContactDate) * -1;
+      if ([1, 3, 5, 7].includes(day)) {
+        alerts.push({
+          urgent: false,
+          type: `Follow-up dia ${day}`,
+          text: `${record.name} precisa de follow-up`,
+          action: () => openFollowUp(record.id),
+          label: "Follow-up"
+        });
+      }
     }
   });
   return alerts;
 }
-function renderAlerts(){
-  const box=$("alertsList");
-  const alerts=buildAlerts();
-  box.innerHTML="";
-  if(!alerts.length){box.innerHTML=`<div class="alert-item"><span>Nenhum alerta pendente agora.</span></div>`;return}
-  alerts.forEach(a=>{
-    const div=document.createElement("div");
-    div.className=`alert-item ${a.urgent?"urgent":""}`;
-    div.innerHTML=`<div><strong>${a.type}</strong><br><span>${a.text}</span></div><button class="btn btn-primary btn-small">${a.label}</button>`;
-    div.querySelector("button").onclick=a.action;
-    box.appendChild(div);
+
+function renderAlerts() {
+  const container = $("alertsList");
+  const alerts = buildAlerts();
+  if (!alerts.length) {
+    container.innerHTML = '<div class="alert-item"><span>Nenhum alerta pendente agora.</span></div>';
+    return;
+  }
+
+  container.innerHTML = "";
+  alerts.forEach((alert) => {
+    const element = document.createElement("div");
+    element.className = `alert-item ${alert.urgent ? "urgent" : ""}`;
+    element.innerHTML = `
+      <div>
+        <strong>${escapeHtml(alert.type)}</strong><br>
+        <span>${escapeHtml(alert.text)}</span>
+      </div>
+      <button class="btn btn-primary btn-small" type="button">${escapeHtml(alert.label)}</button>
+    `;
+    element.querySelector("button").onclick = alert.action;
+    container.appendChild(element);
   });
 }
-function renderMetrics(){
-  const active=records.filter(r=>r.status==="Ativo");
-  const leads=records.filter(r=>r.status==="Lead");
-  const activeRevenue=active.reduce((sum,r)=>sum+(Number(r.value)||0),0);
-  const received=paymentMonthTotal();
-  const goal=parseMoney(localStorage.getItem(GOAL_KEY)||0);
-  const overdue=records.filter(r=>r.status==="Ativo" && ((r.dueDate&&daysBetween(r.dueDate)<0&&!isPaymentRegisteredThisCycle(r,1)) || (r.paymentType==="2x"&&r.dueDate2&&daysBetween(r.dueDate2)<0&&!isPaymentRegisteredThisCycle(r,2)))).length;
-  $("receivedMonth").textContent=formatMoney(received);
-  $("remainingGoal").textContent=formatMoney(Math.max(goal-received,0));
-  $("activeRevenue").textContent=formatMoney(activeRevenue);
-  $("activeCount").textContent=active.length;
-  $("leadCount").textContent=leads.length;
-  $("overdueCount").textContent=overdue;
+
+function renderMetrics() {
+  const active = records.filter((record) => record.status === "Ativo");
+  const leads = records.filter((record) => record.status === "Lead");
+  const activeRevenue = active.reduce((sum, record) => sum + (Number(record.value) || 0), 0);
+  const received = paymentMonthTotal();
+  const overdue = records.filter((record) => (
+    record.status === "Ativo"
+    && (
+      (record.dueDate && daysBetween(record.dueDate) < 0 && !isPaymentRegisteredThisCycle(record, 1))
+      || (
+        record.paymentType === "2x"
+        && record.dueDate2
+        && daysBetween(record.dueDate2) < 0
+        && !isPaymentRegisteredThisCycle(record, 2)
+      )
+    )
+  )).length;
+
+  $("receivedMonth").textContent = formatMoney(received);
+  $("remainingGoal").textContent = formatMoney(Math.max(monthlyGoal - received, 0));
+  $("activeRevenue").textContent = formatMoney(activeRevenue);
+  $("activeCount").textContent = active.length;
+  $("leadCount").textContent = leads.length;
+  $("overdueCount").textContent = overdue;
 }
-function renderTable(){
-  const tbody=$("recordsTable");
-  const data=getFilteredRecords();
-  if(!data.length){tbody.innerHTML=`<tr><td colspan="9">Nenhum cadastro encontrado.</td></tr>`;return}
-  tbody.innerHTML="";
-  data.forEach(r=>{
-    const overdue = r.status==="Ativo" && ((r.dueDate&&daysBetween(r.dueDate)<0&&!isPaymentRegisteredThisCycle(r,1)) || (r.paymentType==="2x"&&r.dueDate2&&daysBetween(r.dueDate2)<0&&!isPaymentRegisteredThisCycle(r,2)));
-    const tr=document.createElement("tr");
-    if(overdue) tr.classList.add("row-overdue");
-    const payText = r.paymentType==="2x"
-  ? `2x (${formatMoney(Math.round((r.value * 0.60) * 100) / 100)} + ${formatMoney(Math.round((r.value * 0.40) * 100) / 100)})`
-  : "Mensal / 1x";
-    const dueText = r.paymentType==="2x" ? `1ª: ${formatDate(r.dueDate)}<br>2ª: ${formatDate(r.dueDate2)}` : formatDate(r.dueDate);
-    const actions=[`<button class="btn btn-secondary btn-small" data-action="edit">Editar</button>`,`<button class="btn btn-secondary btn-small" data-action="history">Histórico</button>`];
-    if(r.status==="Lead"){actions.push(`<button class="btn btn-primary btn-small" data-action="follow">Follow-up</button>`,`<button class="btn btn-warning btn-small" data-action="client">Virou cliente</button>`)}
-    if(r.status==="Ativo"){
-      if(r.paymentType==="2x") actions.push(`<button class="btn btn-primary btn-small" data-action="paid1">Pago 1</button>`,`<button class="btn btn-primary btn-small" data-action="paid2">Pago 2</button>`,`<button class="btn btn-warning btn-small" data-action="charge1">Cobrar 1</button>`,`<button class="btn btn-warning btn-small" data-action="charge2">Cobrar 2</button>`);
-      else actions.push(`<button class="btn btn-primary btn-small" data-action="paid">Pago</button>`,`<button class="btn btn-warning btn-small" data-action="charge">Cobrar</button>`);
+
+function renderTable() {
+  const body = $("recordsTable");
+  const data = getFilteredRecords();
+  if (!data.length) {
+    body.innerHTML = '<tr><td colspan="9">Nenhum cadastro encontrado.</td></tr>';
+    return;
+  }
+
+  body.innerHTML = "";
+  data.forEach((record) => {
+    const overdue = record.status === "Ativo" && (
+      (record.dueDate && daysBetween(record.dueDate) < 0 && !isPaymentRegisteredThisCycle(record, 1))
+      || (
+        record.paymentType === "2x"
+        && record.dueDate2
+        && daysBetween(record.dueDate2) < 0
+        && !isPaymentRegisteredThisCycle(record, 2)
+      )
+    );
+    const row = document.createElement("tr");
+    if (overdue) row.classList.add("row-overdue");
+    const paymentText = record.paymentType === "2x"
+      ? `2x (${formatMoney(Math.round((record.value * 0.60) * 100) / 100)} + ${formatMoney(Math.round((record.value * 0.40) * 100) / 100)})`
+      : "Mensal / 1x";
+    const dueText = record.paymentType === "2x"
+      ? `1ª: ${formatDate(record.dueDate)}<br>2ª: ${formatDate(record.dueDate2)}`
+      : formatDate(record.dueDate);
+    const actions = [
+      '<button class="btn btn-secondary btn-small" type="button" data-action="edit">Editar</button>',
+      '<button class="btn btn-secondary btn-small" type="button" data-action="history">Histórico</button>'
+    ];
+
+    if (record.status === "Lead") {
+      actions.push(
+        '<button class="btn btn-primary btn-small" type="button" data-action="follow">Follow-up</button>',
+        '<button class="btn btn-warning btn-small" type="button" data-action="client">Virou cliente</button>'
+      );
     }
-    actions.push(`<button class="btn btn-danger btn-small" data-action="delete">Excluir</button>`);
-    tr.innerHTML=`
-      <td><strong>${r.name||"-"}</strong><br><span class="muted">${r.phone||""}${r.email?` • ${r.email}`:""}</span></td>
-      <td>${r.documentNumber?formatDoc(r.documentNumber):"-"}</td>
-      <td>${r.plan||"-"}</td>
-      <td>${formatMoney(r.value)}</td>
-      <td><span class="badge ${r.status}">${r.status}</span>${overdue?`<br><span class="badge overdue">atrasado</span>`:""}</td>
-      <td>${payText}</td>
+    if (record.status === "Ativo") {
+      if (record.paymentType === "2x") {
+        actions.push(
+          '<button class="btn btn-primary btn-small" type="button" data-action="paid1">Pago 1</button>',
+          '<button class="btn btn-primary btn-small" type="button" data-action="paid2">Pago 2</button>',
+          '<button class="btn btn-warning btn-small" type="button" data-action="charge1">Cobrar 1</button>',
+          '<button class="btn btn-warning btn-small" type="button" data-action="charge2">Cobrar 2</button>'
+        );
+      } else {
+        actions.push(
+          '<button class="btn btn-primary btn-small" type="button" data-action="paid">Pago</button>',
+          '<button class="btn btn-warning btn-small" type="button" data-action="charge">Cobrar</button>'
+        );
+      }
+    }
+    actions.push('<button class="btn btn-danger btn-small" type="button" data-action="delete">Excluir</button>');
+
+    row.innerHTML = `
+      <td>
+        <strong>${escapeHtml(record.name || "-")}</strong><br>
+        <span class="muted">${escapeHtml(record.phone || "")}${record.email ? ` • ${escapeHtml(record.email)}` : ""}</span>
+      </td>
+      <td>${record.documentNumber ? escapeHtml(formatDoc(record.documentNumber)) : "-"}</td>
+      <td>${escapeHtml(record.plan || "-")}</td>
+      <td>${escapeHtml(formatMoney(record.value))}</td>
+      <td>
+        <span class="badge ${escapeHtml(record.status)}">${escapeHtml(record.status)}</span>
+        ${overdue ? '<br><span class="badge overdue">atrasado</span>' : ""}
+      </td>
+      <td>${escapeHtml(paymentText)}</td>
       <td>${dueText}</td>
-      <td>${formatDate(r.lastPaidDate)}</td>
-      <td><div class="actions">${actions.join("")}</div></td>`;
-    tr.querySelector('[data-action="edit"]').onclick=()=>fillForm(r);
-    tr.querySelector('[data-action="history"]').onclick=()=>showHistory(r.id);
-    tr.querySelector('[data-action="delete"]').onclick=()=>deleteRecord(r.id);
-    const map={follow:()=>openFollowUp(r.id),client:()=>markAsClient(r.id),paid:()=>registerPayment(r.id,1),paid1:()=>registerPayment(r.id,1),paid2:()=>registerPayment(r.id,2),charge:()=>openCharge(r.id,1),charge1:()=>openCharge(r.id,1),charge2:()=>openCharge(r.id,2)};
-    Object.entries(map).forEach(([k,fn])=>{const b=tr.querySelector(`[data-action="${k}"]`); if(b)b.onclick=fn});
-    tbody.appendChild(tr);
+      <td>${escapeHtml(formatDate(record.lastPaidDate))}</td>
+      <td><div class="actions">${actions.join("")}</div></td>
+    `;
+
+    row.querySelector('[data-action="edit"]').onclick = () => fillForm(record);
+    row.querySelector('[data-action="history"]').onclick = () => showHistory(record.id);
+    row.querySelector('[data-action="delete"]').onclick = () => deleteRecord(record.id);
+    const actionMap = {
+      follow: () => openFollowUp(record.id),
+      client: () => markAsClient(record.id),
+      paid: () => registerPayment(record.id, 1),
+      paid1: () => registerPayment(record.id, 1),
+      paid2: () => registerPayment(record.id, 2),
+      charge: () => openCharge(record.id, 1),
+      charge1: () => openCharge(record.id, 1),
+      charge2: () => openCharge(record.id, 2)
+    };
+    Object.entries(actionMap).forEach(([action, handler]) => {
+      const button = row.querySelector(`[data-action="${action}"]`);
+      if (button) button.onclick = handler;
+    });
+    body.appendChild(row);
   });
 }
-function showHistory(id){
-  const r=records.find(x=>x.id===id);
-  if(!r) return;
-  const c=$("historyContent");
-  const hist=r.paymentHistory||[];
-  if(!hist.length)c.innerHTML=`<p class="muted">Nenhum pagamento registrado para ${r.name}.</p>`;
-  else c.innerHTML=hist.map(h=>`<div class="history-row"><div><strong>${h.installment}</strong><br><span class="muted">Pago em ${formatDate(h.paidAt)} | Vencimento: ${formatDate(h.previousDueDate)}</span></div><strong>${formatMoney(h.amount)}</strong></div>`).join("");
+
+function showHistory(id) {
+  const record = records.find((item) => item.id === id);
+  if (!record) return;
+  const content = $("historyContent");
+  const history = record.paymentHistory || [];
+  if (!history.length) {
+    content.innerHTML = `<p class="muted">Nenhum pagamento registrado para ${escapeHtml(record.name)}.</p>`;
+  } else {
+    content.innerHTML = history.map((item) => `
+      <div class="history-row">
+        <div>
+          <strong>${escapeHtml(item.installment)}</strong><br>
+          <span class="muted">Pago em ${escapeHtml(formatDate(item.paidAt))} | Vencimento: ${escapeHtml(formatDate(item.previousDueDate))}</span>
+        </div>
+        <strong>${escapeHtml(formatMoney(item.amount))}</strong>
+      </div>
+    `).join("");
+  }
   $("historyDialog").showModal();
 }
-function renderTrash(){
-  const box=$("trashList");
-  if(!trash.length){box.innerHTML=`<div class="trash-item"><span>Lixeira vazia.</span></div>`;return}
-  box.innerHTML="";
-  trash.forEach(r=>{
-    const div=document.createElement("div");
-    div.className="trash-item";
-    div.innerHTML=`<div><strong>${r.name||"-"}</strong><br><span>${r.plan||"-"} • excluído em ${new Date(r.deletedAt||Date.now()).toLocaleString("pt-BR")}</span></div><button class="btn btn-warning btn-small">Restaurar</button>`;
-    div.querySelector("button").onclick=()=>restoreFromTrash(r.id);
-    box.appendChild(div);
+
+function renderTrash() {
+  const container = $("trashList");
+  if (!trash.length) {
+    container.innerHTML = '<div class="trash-item"><span>Lixeira vazia.</span></div>';
+    return;
+  }
+
+  container.innerHTML = "";
+  trash.forEach((record) => {
+    const element = document.createElement("div");
+    element.className = "trash-item";
+    element.innerHTML = `
+      <div>
+        <strong>${escapeHtml(record.name || "-")}</strong><br>
+        <span>${escapeHtml(record.plan || "-")} • excluído em ${escapeHtml(formatDateTime(record.deletedAt || Date.now()))}</span>
+      </div>
+      <button class="btn btn-warning btn-small" type="button">Restaurar</button>
+    `;
+    element.querySelector("button").onclick = () => restoreFromTrash(record.id);
+    container.appendChild(element);
   });
 }
-function render(){renderMetrics();renderAlerts();renderTable();renderTrash()}
 
-$("clientForm").addEventListener("submit",e=>{e.preventDefault();const r=recordFromForm();const error=validateRecord(r);if(error)return toast(error);upsertRecord(r)});
-$("plan").addEventListener("change",()=>{const plan=$("plan").value;if(planValues[plan]&&!$("value").value)$("value").value=String(planValues[plan]).replace(".",",")});
-$("paymentType").addEventListener("change",toggleDue2);
-$("documentNumber").addEventListener("blur",()=>{$("documentNumber").value=formatDoc($("documentNumber").value)});
-$("clearFormBtn").onclick=clearForm;
-$("exportBackupBtn").onclick=exportBackup;
-$("importBackupInput").onchange=e=>importBackup(e.target.files[0]);
-$("restoreSnapshotBtn").onclick=restoreSnapshot;
-$("saveGoalBtn").onclick=saveGoal;
-$("searchInput").oninput=renderTable;
-$("statusFilter").onchange=renderTable;
-$("closeHistoryBtn").onclick=()=>$("historyDialog").close();
-$("clearTrashBtn").onclick=clearTrash;
+function renderSnapshotSummary() {
+  const snapshots = getSnapshots();
+  $("snapshotSummary").textContent = snapshots.length
+    ? `${snapshots.length} versão(ões) disponível(is)`
+    : "Nenhuma versão anterior";
+}
 
+function renderSnapshots() {
+  const container = $("snapshotsList");
+  const snapshots = getSnapshots();
+  if (!snapshots.length) {
+    container.innerHTML = '<div class="snapshot-item"><span>Nenhuma versão anterior encontrada.</span></div>';
+    return;
+  }
+
+  container.innerHTML = snapshots.map((snapshot) => `
+    <div class="snapshot-item">
+      <div>
+        <strong>${escapeHtml(formatDateTime(snapshot.createdAt))}</strong>
+        <span>${escapeHtml(snapshot.reason)}</span>
+        <small>${snapshot.data.records.length} cadastro(s) • ${snapshot.data.trash.length} item(ns) na lixeira</small>
+      </div>
+      <button class="btn btn-warning btn-small" type="button" data-snapshot-id="${escapeHtml(snapshot.id)}">Restaurar</button>
+    </div>
+  `).join("");
+
+  container.querySelectorAll("[data-snapshot-id]").forEach((button) => {
+    button.onclick = () => restoreSnapshot(button.dataset.snapshotId);
+  });
+}
+
+function openSnapshotsDialog() {
+  renderSnapshots();
+  $("snapshotsDialog").showModal();
+}
+
+function render() {
+  renderMetrics();
+  renderAlerts();
+  renderTable();
+  renderTrash();
+  renderSnapshotSummary();
+}
+
+$("clientForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const record = recordFromForm();
+  const error = validateRecord(record);
+  if (error) {
+    toast(error);
+    return;
+  }
+  upsertRecord(record);
+});
+
+$("plan").addEventListener("change", () => {
+  const plan = $("plan").value;
+  if (planValues[plan] && !$("value").value) {
+    $("value").value = String(planValues[plan]).replace(".", ",");
+  }
+});
+$("paymentType").addEventListener("change", toggleDue2);
+$("documentNumber").addEventListener("blur", () => {
+  $("documentNumber").value = formatDoc($("documentNumber").value);
+});
+$("phone").addEventListener("blur", () => {
+  $("phone").value = normalizePhone($("phone").value);
+});
+$("email").addEventListener("blur", () => {
+  $("email").value = normalizeEmail($("email").value);
+});
+$("clearFormBtn").onclick = clearForm;
+$("exportBackupBtn").onclick = exportBackup;
+$("importBackupInput").onchange = (event) => prepareImport(event.target.files[0]);
+$("restoreSnapshotBtn").onclick = openSnapshotsDialog;
+$("saveGoalBtn").onclick = saveGoal;
+$("searchInput").oninput = renderTable;
+$("statusFilter").onchange = renderTable;
+$("closeHistoryBtn").onclick = () => $("historyDialog").close();
+$("closeSnapshotsBtn").onclick = () => $("snapshotsDialog").close();
+$("closeImportBtn").onclick = closeImportDialog;
+$("replaceImportBtn").onclick = () => performImport("replace");
+$("mergeImportBtn").onclick = () => performImport("merge");
+$("clearTrashBtn").onclick = clearTrash;
+document.querySelectorAll("[data-tab]").forEach((button) => {
+  button.onclick = () => setActiveTab(button.dataset.tab);
+});
+
+function importLeadFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const rawLead = params.get("importLead");
+  if (!rawLead) return;
+
+  try {
+    let parsed;
+    try {
+      parsed = JSON.parse(rawLead);
+    } catch {
+      parsed = JSON.parse(decodeURIComponent(rawLead));
+    }
+    const lead = normalizeRecord({
+      ...parsed,
+      status: "Lead",
+      paymentType: "1x",
+      value: parsed.value || 0,
+      notes: parsed.notes || "Origem: Proposta AXIS 1"
+    });
+
+    if (!lead.name || lead.phone.length < 10 || lead.phone.length > 11) {
+      throw new Error("Lead sem nome ou telefone válido");
+    }
+    if (lead.email && !validateEmail(lead.email)) throw new Error("E-mail inválido");
+    if (lead.documentNumber) {
+      const validDocument = (
+        (lead.documentNumber.length === 11 && validateCpf(lead.documentNumber))
+        || (lead.documentNumber.length === 14 && validateCnpj(lead.documentNumber))
+      );
+      if (!validDocument) throw new Error("Documento inválido");
+    }
+
+    const duplicate = duplicateMatch(lead);
+    if (duplicate) {
+      window.alert(`Esse lead já existe no CRM pelo mesmo ${duplicate.field}.`);
+      return;
+    }
+
+    applyImportantChange(`Antes de importar o lead ${lead.name} pela URL`, () => {
+      records.unshift(lead);
+    });
+    window.history.replaceState({}, document.title, window.location.pathname);
+    setActiveTab("records");
+    window.alert("Lead importado automaticamente no CRM.");
+  } catch (error) {
+    console.error(error);
+    window.alert("Erro ao importar lead. Confira os dados recebidos.");
+  }
+}
+
+persistData();
 loadGoal();
 toggleDue2();
 render();
-
-
-// ===== IMPORTADOR AUTOMÁTICO DE LEADS =====
-
-(function importLeadFromURL() {
-  const params = new URLSearchParams(window.location.search);
-  const importLead = params.get("importLead");
-
-  if (!importLead) return;
-
-  try {
-    const lead = JSON.parse(decodeURIComponent(importLead));
-
-    const storageKey = "axis1_crm_v2_insano";
-    const current = JSON.parse(localStorage.getItem(storageKey) || "[]");
-
-    const alreadyExists = current.some(item =>
-      item.phone === lead.phone &&
-      item.name === lead.name
-    );
-
-    if (!alreadyExists) {
-      const newLead = {
-        id: "axis-" + Date.now(),
-        name: lead.name || "",
-        documentNumber: lead.documentNumber || "",
-        phone: lead.phone || "",
-        email: lead.email || "",
-        plan: lead.plan || "",
-        value: 0,
-        status: "Lead",
-        paymentType: "1x",
-        firstContactDate: lead.firstContactDate || "",
-        startDate: "",
-        dueDate: "",
-        dueDate2: "",
-        notes: lead.notes || "Origem: Proposta AXIS 1",
-        lastPaidDate: null,
-        paymentHistory: []
-      };
-
-      current.unshift(newLead);
-
-      localStorage.setItem(storageKey, JSON.stringify(current));
-
-      alert("Lead importado automaticamente no CRM 😈🔥");
-
-      window.history.replaceState({}, document.title, window.location.pathname);
-
-      location.reload();
-    } else {
-      alert("Esse lead já existe no CRM.");
-    }
-
-  } catch (error) {
-    console.error(error);
-    alert("Erro ao importar lead.");
-  }
-})();
+importLeadFromUrl();
