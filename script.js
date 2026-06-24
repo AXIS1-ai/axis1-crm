@@ -1,4 +1,4 @@
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 const STORAGE_KEY = "axis1_crm_v2_insano";
 const LEGACY_KEYS = [
   "axis1_crm_v2_insano",
@@ -16,10 +16,16 @@ const SNAPSHOT_KEY = "axis1_crm_v2_snapshots";
 const TRASH_KEY = "axis1_crm_v2_trash";
 const GOAL_KEY = "axis1_crm_v2_goal";
 const RECEIPT_COUNTER_KEY = "axis1_crm_v3_receipt_counters";
+const FINANCIAL_REPORTS_KEY = "axis1_crm_v3_financial_reports";
 const MAX_SNAPSHOTS = 10;
 const AXIS_WHATSAPP = "(16) 99742-4912";
 const RECEIPT_MESSAGE = "MENSAGEM AUTOMÁTICA GERADA PELO SISTEMA INTELIGENTE AXIS1 - Olá, tudo bem? Segue o recibo referente ao pagamento do serviço contratado com a AXIS 1. Qualquer dúvida, ficamos à disposição.";
 const RECEIPT_LEGAL_TEXT = "Declaramos para os devidos fins que recebemos o valor acima referente aos serviços descritos neste recibo.";
+const COLLECTION_MESSAGES = {
+  upcoming: "Olá, tudo bem? Passando para lembrar que o pagamento referente ao serviço contratado com a AXIS 1 vence em breve. Qualquer dúvida, ficamos à disposição.",
+  overdue: "Olá, tudo bem? Identificamos que o pagamento referente ao serviço contratado com a AXIS 1 ainda está em aberto. Pode nos confirmar, por favor, a previsão de regularização?",
+  partial: "Olá, tudo bem? Identificamos o recebimento parcial do pagamento referente ao serviço contratado com a AXIS 1. O saldo restante permanece em aberto. Qualquer dúvida, ficamos à disposição."
+};
 
 const COMMERCIAL_STAGES = [
   "Novo lead",
@@ -243,7 +249,10 @@ function normalizeTimelineItem(item = {}, prefix = "event", fallbackDescription 
     id: String(item.id || `${prefix}-${stableHash(`${createdAt}|${type}|${description}`)}`),
     createdAt,
     type,
-    description
+    description,
+    value: parseMoney(item.value ?? item.valor ?? 0),
+    actor: String(item.actor || item.usuario || "Sistema"),
+    metadata: item.metadata && typeof item.metadata === "object" ? item.metadata : {}
   };
 }
 
@@ -274,6 +283,8 @@ function normalizePaymentItem(item = {}, recordId = "", index = 0) {
   const nextDueDate = item.nextDueDate || item.proximoVencimento || "";
   const signature = `${recordId}|${paidAt}|${amount}|${installment}|${previousDueDate}|${index}`;
   const receiptData = normalizeReceiptData(item.receiptData || item.dadosRecibo);
+  const expectedAmount = parseMoney(item.expectedAmount ?? item.valorEsperado ?? amount);
+  const balanceRemaining = Math.max(parseMoney(item.balanceRemaining ?? item.saldoRestante ?? 0), 0);
   return {
     id: String(item.id || item.paymentId || `payment-${stableHash(signature)}`),
     paidAt,
@@ -284,9 +295,39 @@ function normalizePaymentItem(item = {}, recordId = "", index = 0) {
     paymentMethod: String(item.paymentMethod || item.formaPagamentoRecebida || item.metodo || "Não informado"),
     referencePeriod: String(item.referencePeriod || item.periodoReferencia || monthYear(previousDueDate || paidAt)),
     notes: String(item.notes || item.observacoes || ""),
+    expectedAmount,
+    cycleId: String(item.cycleId || `cycle-${stableHash(`${recordId}|${previousDueDate || paidAt}|${installment}`)}`),
+    isPartial: Boolean(item.isPartial ?? item.pagamentoParcial ?? balanceRemaining > 0),
+    balanceRemaining,
+    balanceDueDate: item.balanceDueDate || item.vencimentoSaldo || "",
+    paymentStatus: String(item.paymentStatus || (balanceRemaining > 0 ? "Parcial" : "Quitado")),
     receiptNumber: String(item.receiptNumber || item.numeroRecibo || receiptData?.receiptNumber || ""),
     receiptGeneratedAt: item.receiptGeneratedAt || item.dataGeracaoRecibo || receiptData?.generatedAt || "",
     receiptData
+  };
+}
+
+function normalizeOpenBalance(item = {}, recordId = "", index = 0) {
+  const installment = Number(item.installment || item.parcela || 1);
+  const dueDate = item.dueDate || item.vencimento || "";
+  const expectedAmount = parseMoney(item.expectedAmount ?? item.valorEsperado ?? 0);
+  const paidAmount = parseMoney(item.paidAmount ?? item.valorPago ?? 0);
+  const remainingAmount = Math.max(
+    parseMoney(item.remainingAmount ?? item.saldoRestante ?? expectedAmount - paidAmount),
+    0
+  );
+  return {
+    id: String(item.id || `balance-${stableHash(`${recordId}|${installment}|${dueDate}|${index}`)}`),
+    cycleId: String(item.cycleId || `cycle-${stableHash(`${recordId}|${dueDate}|${installment}`)}`),
+    installment,
+    label: String(item.label || (installment === 2 ? "2ª parcela" : "Mensal")),
+    dueDate,
+    referencePeriod: String(item.referencePeriod || monthYear(dueDate)),
+    expectedAmount,
+    paidAmount,
+    remainingAmount,
+    balanceDueDate: item.balanceDueDate || item.vencimentoSaldo || dueDate,
+    updatedAt: item.updatedAt || ""
   };
 }
 
@@ -352,6 +393,10 @@ function normalizeRecord(record = {}) {
       generatedAt: item.receiptGeneratedAt,
       data: item.receiptData
     }));
+  const openBalances = (record.openBalances || record.saldosAbertos || [])
+    .filter((item) => item && typeof item === "object")
+    .map((item, index) => normalizeOpenBalance(item, recordId, index))
+    .filter((item) => item.remainingAmount > 0);
 
   return {
     id: recordId,
@@ -378,8 +423,12 @@ function normalizeRecord(record = {}) {
     commercialHistory,
     lastPaidDate: record.lastPaidDate || record.ultimoPagamento || record.ultimo_pagamento || null,
     paymentHistory,
+    openBalances,
+    partialPayments: paymentHistory.filter((item) => item.isPartial),
     receipts: uniqueReceipts([...(record.receipts || record.recibos || []), ...derivedReceipts]),
     financialHistory,
+    financialStatus: String(record.financialStatus || record.statusFinanceiro || ""),
+    canceledAt: record.canceledAt || record.canceladoEm || null,
     deletedAt: record.deletedAt || record.excluidoEm || null
   };
 }
@@ -387,6 +436,137 @@ function normalizeRecord(record = {}) {
 function migrateArray(value) {
   if (!Array.isArray(value)) return [];
   return value.filter((item) => item && typeof item === "object").map(normalizeRecord);
+}
+
+function expectedInstallmentAmount(record, installment = 1) {
+  const total = Number(record.value) || 0;
+  if (record.paymentType !== "2x") return total;
+  return installment === 1
+    ? Math.round(total * 0.60 * 100) / 100
+    : Math.round(total * 0.40 * 100) / 100;
+}
+
+function paymentMatchesInstallment(payment, record, installment) {
+  if (record.paymentType !== "2x") return String(payment.installment).includes("Mensal");
+  return String(payment.installment).includes(String(installment));
+}
+
+function currentDueEntries(record) {
+  if (record.status !== "Ativo") return [];
+  if (record.paymentType === "2x") {
+    return [
+      { installment: 1, label: "1ª parcela", dueDate: record.dueDate },
+      { installment: 2, label: "2ª parcela", dueDate: record.dueDate2 }
+    ];
+  }
+  return [{ installment: 1, label: "Mensal", dueDate: record.dueDate }];
+}
+
+function getRecordReceivables(record) {
+  return currentDueEntries(record)
+    .filter((entry) => entry.dueDate)
+    .map((entry) => {
+      const expectedAmount = expectedInstallmentAmount(record, entry.installment);
+      const openBalance = (record.openBalances || []).find((balance) => (
+        balance.installment === entry.installment
+        && (balance.dueDate === entry.dueDate || balance.cycleId === `cycle-${stableHash(`${record.id}|${entry.dueDate}|${entry.installment}`)}`)
+      ));
+      const payments = (record.paymentHistory || []).filter((payment) => (
+        payment.previousDueDate === entry.dueDate
+        && paymentMatchesInstallment(payment, record, entry.installment)
+      ));
+      const paidAmount = payments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
+      const remainingAmount = openBalance
+        ? openBalance.remainingAmount
+        : Math.max(expectedAmount - paidAmount, 0);
+      const dueDate = openBalance?.balanceDueDate || entry.dueDate;
+      return {
+        id: openBalance?.id || `receivable-${stableHash(`${record.id}|${entry.dueDate}|${entry.installment}`)}`,
+        cycleId: openBalance?.cycleId || `cycle-${stableHash(`${record.id}|${entry.dueDate}|${entry.installment}`)}`,
+        recordId: record.id,
+        installment: entry.installment,
+        label: entry.label,
+        originalDueDate: entry.dueDate,
+        dueDate,
+        referencePeriod: openBalance?.referencePeriod || monthYear(entry.dueDate),
+        expectedAmount,
+        paidAmount,
+        remainingAmount,
+        isPartial: remainingAmount > 0 && paidAmount > 0
+      };
+    })
+    .filter((receivable) => receivable.remainingAmount > 0);
+}
+
+function getFinancialStatus(record) {
+  if (record.status === "Cancelado") return "Cancelado";
+  if (record.status !== "Ativo") return "Em dia";
+  const receivables = getRecordReceivables(record);
+  if (!currentDueEntries(record).some((entry) => entry.dueDate)) return "Pendente";
+  if (receivables.some((item) => item.isPartial)) return "Parcialmente pago";
+  if (receivables.some((item) => daysBetween(item.dueDate) < 0)) return "Em atraso";
+  if (receivables.some((item) => daysBetween(item.dueDate) === 0)) return "Pendente";
+  return "Em dia";
+}
+
+function allOpenReceivables() {
+  return records.flatMap((record) => getRecordReceivables(record).map((receivable) => ({
+    ...receivable,
+    record,
+    financialStatus: getFinancialStatus(record)
+  })));
+}
+
+function buildFinancialCycles(record) {
+  const cycles = new Map();
+  (record.paymentHistory || []).forEach((payment) => {
+    const key = payment.cycleId || `cycle-${stableHash(`${record.id}|${payment.previousDueDate || payment.paidAt}|${payment.installment}`)}`;
+    const existing = cycles.get(key) || {
+      cycleId: key,
+      recordId: record.id,
+      record,
+      installment: payment.installment,
+      dueDate: payment.previousDueDate || payment.paidAt,
+      referencePeriod: payment.referencePeriod || monthYear(payment.previousDueDate || payment.paidAt),
+      expectedAmount: 0,
+      paidAmount: 0,
+      payments: []
+    };
+    existing.expectedAmount = Math.max(
+      existing.expectedAmount,
+      Number(payment.expectedAmount) || Number(payment.amount) || 0
+    );
+    existing.paidAmount += Number(payment.amount) || 0;
+    existing.payments.push(payment);
+    cycles.set(key, existing);
+  });
+  getRecordReceivables(record).forEach((receivable) => {
+    const existing = cycles.get(receivable.cycleId) || {
+      cycleId: receivable.cycleId,
+      recordId: record.id,
+      record,
+      installment: receivable.label,
+      dueDate: receivable.originalDueDate,
+      referencePeriod: receivable.referencePeriod,
+      expectedAmount: receivable.expectedAmount,
+      paidAmount: receivable.paidAmount,
+      payments: []
+    };
+    existing.expectedAmount = Math.max(existing.expectedAmount, receivable.expectedAmount);
+    existing.paidAmount = Math.max(existing.paidAmount, receivable.paidAmount);
+    existing.balanceDueDate = receivable.dueDate;
+    cycles.set(receivable.cycleId, existing);
+  });
+  return [...cycles.values()].map((cycle) => ({
+    ...cycle,
+    openAmount: Math.max(cycle.expectedAmount - cycle.paidAmount, 0),
+    isPartial: cycle.paidAmount > 0 && cycle.paidAmount < cycle.expectedAmount,
+    isPaid: cycle.expectedAmount > 0 && cycle.paidAmount >= cycle.expectedAmount
+  }));
+}
+
+function allFinancialCycles() {
+  return records.flatMap(buildFinancialCycles);
 }
 
 function extractRecords(data) {
@@ -435,6 +615,15 @@ function readReceiptCounters() {
   }
 }
 
+function readFinancialReports() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(FINANCIAL_REPORTS_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 function normalizeSnapshot(snapshot = {}) {
   const source = snapshot.data && typeof snapshot.data === "object"
     ? snapshot.data
@@ -449,6 +638,7 @@ function normalizeSnapshot(snapshot = {}) {
       records: migrateArray(source.records || source.clientes || []),
       trash: migrateArray(source.trash || source.lixeira || []),
       monthlyGoal: parseMoney(source.monthlyGoal ?? source.metaMensal ?? 0),
+      financialReports: Array.isArray(source.financialReports) ? source.financialReports : [],
       receiptCounters: source.receiptCounters && typeof source.receiptCounters === "object"
         ? source.receiptCounters
         : {}
@@ -476,10 +666,11 @@ let records = findInitialData();
 let trash = loadTrash();
 let monthlyGoal = readGoal();
 let receiptCounters = readReceiptCounters();
+let financialReports = readFinancialReports();
 let pendingImport = null;
 
 function captureState() {
-  return cloneData({ records, trash, monthlyGoal, receiptCounters });
+  return cloneData({ records, trash, monthlyGoal, receiptCounters, financialReports });
 }
 
 function buildSnapshot(reason, state = captureState()) {
@@ -503,6 +694,7 @@ function persistData() {
   localStorage.setItem(TRASH_KEY, JSON.stringify(trash));
   localStorage.setItem(GOAL_KEY, String(monthlyGoal || 0));
   localStorage.setItem(RECEIPT_COUNTER_KEY, JSON.stringify(receiptCounters));
+  localStorage.setItem(FINANCIAL_REPORTS_KEY, JSON.stringify(financialReports));
 }
 
 function applyImportantChange(reason, mutate) {
@@ -530,13 +722,16 @@ function addCommercialHistory(record, type, description) {
   }, "commercial"));
 }
 
-function addFinancialHistory(record, type, description) {
+function addFinancialHistory(record, type, description, value = 0, metadata = {}, actor = "Sistema") {
   record.financialHistory = record.financialHistory || [];
   record.financialHistory.unshift(normalizeTimelineItem({
     id: uid("financial"),
     createdAt: new Date().toISOString(),
     type,
-    description
+    description,
+    value,
+    metadata,
+    actor
   }, "financial"));
 }
 
@@ -571,8 +766,11 @@ function recordFromForm() {
     commercialHistory: existing?.commercialHistory || [],
     lastPaidDate: existing?.lastPaidDate || null,
     paymentHistory: existing?.paymentHistory || [],
+    openBalances: existing?.openBalances || [],
     receipts: existing?.receipts || [],
-    financialHistory: existing?.financialHistory || []
+    financialHistory: existing?.financialHistory || [],
+    financialStatus: existing?.financialStatus || "",
+    canceledAt: existing?.canceledAt || null
   });
 }
 
@@ -669,11 +867,44 @@ function upsertRecord(record) {
         `Campos atualizados: ${otherChanges.join(", ")}.`
       );
     }
+    if (existing.plan !== record.plan || Number(existing.value) !== Number(record.value)) {
+      addFinancialHistory(
+        record,
+        "Plano ou valor alterado",
+        `Plano/valor alterado de ${existing.plan || "não informado"} (${formatMoney(existing.value)}) para ${record.plan || "não informado"} (${formatMoney(record.value)}).`,
+        Number(record.value) || 0,
+        {
+          previousPlan: existing.plan,
+          previousValue: existing.value,
+          newPlan: record.plan,
+          newValue: record.value
+        }
+      );
+    }
+    if (existing.dueDate !== record.dueDate || existing.dueDate2 !== record.dueDate2) {
+      addFinancialHistory(
+        record,
+        "Vencimento alterado",
+        `Vencimento atualizado de ${formatDate(existing.dueDate)}${existing.dueDate2 ? ` / ${formatDate(existing.dueDate2)}` : ""} para ${formatDate(record.dueDate)}${record.dueDate2 ? ` / ${formatDate(record.dueDate2)}` : ""}.`,
+        0,
+        {
+          previousDueDate: existing.dueDate,
+          previousDueDate2: existing.dueDate2,
+          newDueDate: record.dueDate,
+          newDueDate2: record.dueDate2
+        }
+      );
+    }
+    if (existing.status !== "Cancelado" && record.status === "Cancelado") {
+      record.canceledAt = new Date().toISOString();
+      addFinancialHistory(record, "Cliente cancelado", "Cadastro marcado como cancelado.", 0);
+    }
   } else {
     addCommercialHistory(record, "Cadastro criado", `Cadastro incluído na etapa ${record.commercialStage}.`);
   }
 
   applyImportantChange(reason, () => {
+    record.financialStatus = getFinancialStatus(record);
     if (index >= 0) records[index] = record;
     else records.unshift(record);
   });
@@ -902,33 +1133,95 @@ function openFollowUp(id) {
 function openCharge(id, installment = 1) {
   const record = records.find((item) => item.id === id);
   if (!record) return;
-  const due = installment === 2 ? record.dueDate2 : record.dueDate;
-  const installmentText = record.paymentType === "2x" ? ` da ${installment}ª parcela` : "";
-  const difference = daysBetween(due);
-  const message = difference < 0
-    ? `Olá, tudo bem? Passando para lembrar que o pagamento${installmentText} referente aos serviços da AXIS 1 venceu em ${formatDate(due)}. Pode me confirmar, por gentileza, a previsão de regularização?`
-    : `Olá, tudo bem? Passando para lembrar que o pagamento${installmentText} referente aos serviços da AXIS 1 vence em ${formatDate(due)}. Qualquer dúvida estou à disposição.`;
+  const receivable = getRecordReceivables(record).find((item) => item.installment === installment);
+  const messageType = receivable?.isPartial
+    ? "partial"
+    : (receivable && daysBetween(receivable.dueDate) < 0 ? "overdue" : "upcoming");
+  const message = COLLECTION_MESSAGES[messageType];
   window.open(whatsappUrl(record.phone, message), "_blank", "noopener");
+  applyImportantChange(`Antes de registrar cobrança de ${record.name}`, () => {
+    addFinancialHistory(
+      record,
+      "Cobrança enviada",
+      `WhatsApp aberto com mensagem de ${messageType === "partial" ? "pagamento parcial" : (messageType === "overdue" ? "pagamento vencido" : "vencimento próximo")}.`,
+      receivable?.remainingAmount || 0,
+      { messageType, receivableId: receivable?.id || "", channel: "WhatsApp" }
+    );
+  });
+}
+
+async function copyCollectionMessage(recordId, receivableId) {
+  const record = records.find((item) => item.id === recordId);
+  if (!record) return;
+  const receivable = getRecordReceivables(record).find((item) => item.id === receivableId)
+    || getRecordReceivables(record)[0];
+  const messageType = receivable?.isPartial
+    ? "partial"
+    : (receivable && daysBetween(receivable.dueDate) < 0 ? "overdue" : "upcoming");
+  const copied = await copyText(COLLECTION_MESSAGES[messageType]);
+  if (!copied) {
+    toast("Não foi possível copiar a mensagem de cobrança.");
+    return;
+  }
+  applyImportantChange(`Antes de registrar mensagem de cobrança de ${record.name}`, () => {
+    addFinancialHistory(
+      record,
+      "Mensagem de cobrança copiada",
+      `Mensagem de ${messageType === "partial" ? "pagamento parcial" : (messageType === "overdue" ? "pagamento vencido" : "vencimento próximo")} copiada.`,
+      receivable?.remainingAmount || 0,
+      { messageType, receivableId: receivable?.id || "", channel: "Cópia" }
+    );
+  });
+  toast("Mensagem de cobrança copiada.");
+}
+
+function openFinanceWhatsApp(recordId, receivableId) {
+  const record = records.find((item) => item.id === recordId);
+  if (!record) return;
+  const receivable = getRecordReceivables(record).find((item) => item.id === receivableId)
+    || getRecordReceivables(record)[0];
+  const messageType = receivable?.isPartial
+    ? "partial"
+    : (receivable && daysBetween(receivable.dueDate) < 0 ? "overdue" : "upcoming");
+  window.open(whatsappUrl(record.phone, COLLECTION_MESSAGES[messageType]), "_blank", "noopener");
+  applyImportantChange(`Antes de registrar cobrança de ${record.name}`, () => {
+    addFinancialHistory(
+      record,
+      "Cobrança enviada",
+      `WhatsApp aberto com mensagem de ${messageType === "partial" ? "pagamento parcial" : (messageType === "overdue" ? "pagamento vencido" : "vencimento próximo")}.`,
+      receivable?.remainingAmount || 0,
+      { messageType, receivableId: receivable?.id || "", channel: "WhatsApp" }
+    );
+  });
 }
 
 function defaultPaymentAmount(record, installment) {
-  if (record.paymentType !== "2x") return record.value;
-  return installment === 1
-    ? Math.round((record.value * 0.60) * 100) / 100
-    : Math.round((record.value * 0.40) * 100) / 100;
+  return expectedInstallmentAmount(record, installment);
 }
 
-function openPaymentDialog(id, installment = 1) {
+function openPaymentDialog(id, installment = 1, receivableId = "") {
   const record = records.find((item) => item.id === id);
   if (!record) return;
-  const due = installment === 2 ? record.dueDate2 : record.dueDate;
+  const receivables = getRecordReceivables(record);
+  const receivable = receivables.find((item) => item.id === receivableId)
+    || receivables.find((item) => item.installment === installment);
+  const due = receivable?.originalDueDate || (installment === 2 ? record.dueDate2 : record.dueDate);
+  const expectedAmount = receivable?.expectedAmount || defaultPaymentAmount(record, installment);
+  const remainingAmount = receivable?.remainingAmount ?? expectedAmount;
   $("paymentForm").reset();
   $("paymentRecordId").value = id;
   $("paymentInstallment").value = installment;
-  $("paymentAmount").value = String(defaultPaymentAmount(record, installment) || 0).replace(".", ",");
+  $("paymentCycleId").value = receivable?.cycleId || `cycle-${stableHash(`${record.id}|${due}|${installment}`)}`;
+  $("paymentAmount").value = String(remainingAmount || 0).replace(".", ",");
   $("paymentMethod").value = "Pix";
   $("paymentDate").value = todayStr();
-  $("paymentReference").value = monthYear(due || todayStr());
+  $("paymentReference").value = receivable?.referencePeriod || monthYear(due || todayStr());
+  $("paymentBalanceDueDate").value = receivable?.dueDate || due || todayStr();
+  $("paymentBalanceSummary").innerHTML = `
+    <div><span>Valor esperado</span><strong>${escapeHtml(formatMoney(expectedAmount))}</strong></div>
+    <div><span>Já recebido</span><strong>${escapeHtml(formatMoney(receivable?.paidAmount || 0))}</strong></div>
+    <div><span>Saldo atual</span><strong>${escapeHtml(formatMoney(remainingAmount))}</strong></div>
+  `;
   $("paymentDialog").showModal();
 }
 
@@ -936,6 +1229,18 @@ function registerPayment(id, installment, details) {
   const record = records.find((item) => item.id === id);
   if (!record) return;
   const previousDueDate = installment === 2 ? record.dueDate2 : record.dueDate;
+  const currentReceivable = getRecordReceivables(record).find((item) => (
+    item.cycleId === details.cycleId || item.installment === installment
+  ));
+  const expectedAmount = currentReceivable?.expectedAmount || expectedInstallmentAmount(record, installment);
+  const paidBefore = currentReceivable?.paidAmount || 0;
+  const openBefore = currentReceivable?.remainingAmount ?? expectedAmount;
+  if (details.amount > openBefore + 0.009) {
+    toast(`O valor informado supera o saldo em aberto de ${formatMoney(openBefore)}.`);
+    return;
+  }
+  const balanceRemaining = Math.max(openBefore - details.amount, 0);
+  const isPartial = balanceRemaining > 0.009;
   const payment = normalizePaymentItem({
     id: uid("payment"),
     paidAt: details.paidAt,
@@ -947,7 +1252,13 @@ function registerPayment(id, installment, details) {
       : record.dueDate2,
     paymentMethod: details.paymentMethod,
     referencePeriod: details.referencePeriod,
-    notes: details.notes
+    notes: details.notes,
+    expectedAmount,
+    cycleId: details.cycleId,
+    isPartial,
+    balanceRemaining,
+    balanceDueDate: isPartial ? details.balanceDueDate : "",
+    paymentStatus: isPartial ? "Parcial" : "Quitado"
   }, record.id);
 
   applyImportantChange(`Antes de registrar pagamento de ${record.name}`, () => {
@@ -956,21 +1267,50 @@ function registerPayment(id, installment, details) {
     record.paymentHistory.unshift(payment);
     addFinancialHistory(
       record,
-      "Pagamento registrado",
-      `${payment.installment} de ${formatMoney(payment.amount)} recebida via ${payment.paymentMethod}, referência ${payment.referencePeriod}.`
+      isPartial ? "Pagamento parcial registrado" : "Pagamento registrado",
+      `${payment.installment} de ${formatMoney(payment.amount)} recebida via ${payment.paymentMethod}, referência ${payment.referencePeriod}.${isPartial ? ` Saldo restante: ${formatMoney(balanceRemaining)}, com vencimento em ${formatDate(details.balanceDueDate)}.` : ""}`,
+      payment.amount,
+      {
+        paymentId: payment.id,
+        cycleId: payment.cycleId,
+        expectedAmount,
+        paidBefore,
+        balanceRemaining,
+        balanceDueDate: details.balanceDueDate,
+        paymentMethod: payment.paymentMethod
+      }
     );
 
-    if (record.paymentType === "1x") {
+    record.openBalances = record.openBalances || [];
+    record.openBalances = record.openBalances.filter((balance) => balance.cycleId !== payment.cycleId);
+    if (isPartial) {
+      record.openBalances.push(normalizeOpenBalance({
+        id: currentReceivable?.id || uid("balance"),
+        cycleId: payment.cycleId,
+        installment,
+        label: payment.installment,
+        dueDate: previousDueDate,
+        referencePeriod: payment.referencePeriod,
+        expectedAmount,
+        paidAmount: paidBefore + payment.amount,
+        remainingAmount: balanceRemaining,
+        balanceDueDate: details.balanceDueDate || previousDueDate,
+        updatedAt: new Date().toISOString()
+      }, record.id));
+    } else if (record.paymentType === "1x") {
       record.dueDate = addOneMonth(record.dueDate || details.paidAt);
     } else if (installment === 2) {
       record.dueDate = addOneMonth(record.dueDate || details.paidAt);
       record.dueDate2 = addOneMonth(record.dueDate2 || details.paidAt);
     }
+    record.financialStatus = getFinancialStatus(record);
   });
 
   if ($("paymentDialog").open) $("paymentDialog").close();
   toast(
-    record.paymentType === "2x" && installment === 1
+    isPartial
+      ? `Pagamento parcial registrado. Saldo restante: ${formatMoney(balanceRemaining)}.`
+      : record.paymentType === "2x" && installment === 1
       ? "1ª parcela registrada. A 2ª parcela continua pendente."
       : "Pagamento registrado. O recibo já pode ser gerado."
   );
@@ -987,6 +1327,342 @@ function paymentMonthTotal() {
       ? historySum + (Number(item.amount) || 0)
       : historySum;
   }, 0), 0);
+}
+
+function dateInPeriod(dateStr, year, monthIndex) {
+  if (!dateStr) return false;
+  const date = new Date(`${dateStr}T12:00:00`);
+  return !Number.isNaN(date.getTime())
+    && date.getFullYear() === Number(year)
+    && date.getMonth() === Number(monthIndex);
+}
+
+function buildMonthlyFinancialReport(year, monthIndex) {
+  const cycles = allFinancialCycles().filter((cycle) => dateInPeriod(cycle.dueDate, year, monthIndex));
+  const payments = records.flatMap((record) => (record.paymentHistory || [])
+    .filter((payment) => dateInPeriod(payment.paidAt, year, monthIndex))
+    .map((payment) => ({ ...payment, record })));
+  const expected = cycles.reduce((sum, cycle) => sum + (Number(cycle.expectedAmount) || 0), 0);
+  const received = payments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
+  const open = cycles.reduce((sum, cycle) => sum + (Number(cycle.openAmount) || 0), 0);
+  const overdueCycles = cycles.filter((cycle) => (
+    cycle.openAmount > 0 && daysBetween(cycle.balanceDueDate || cycle.dueDate) < 0
+  ));
+  const overdue = overdueCycles.reduce((sum, cycle) => sum + cycle.openAmount, 0);
+  const paidClientIds = new Set(cycles.filter((cycle) => cycle.isPaid).map((cycle) => cycle.recordId));
+  const pendingClientIds = new Set(cycles.filter((cycle) => (
+    cycle.openAmount > 0 && daysBetween(cycle.balanceDueDate || cycle.dueDate) >= 0
+  )).map((cycle) => cycle.recordId));
+  const defaultClientIds = new Set(overdueCycles.map((cycle) => cycle.recordId));
+  const receiptCount = payments.filter((payment) => payment.receiptNumber).length;
+  const partialCount = payments.filter((payment) => payment.isPartial).length;
+  const canceledCount = records.filter((record) => (
+    record.status === "Cancelado"
+    && record.canceledAt
+    && dateInPeriod(String(record.canceledAt).slice(0, 10), year, monthIndex)
+  )).length;
+
+  return {
+    id: `finance-report-${year}-${String(Number(monthIndex) + 1).padStart(2, "0")}`,
+    year: Number(year),
+    month: Number(monthIndex),
+    generatedAt: new Date().toISOString(),
+    expected,
+    received,
+    open,
+    overdue,
+    paidCount: paidClientIds.size,
+    pendingCount: pendingClientIds.size,
+    defaultCount: defaultClientIds.size,
+    receiptCount,
+    partialCount,
+    canceledCount,
+    payments
+  };
+}
+
+function currentFinancialMetrics() {
+  const now = new Date();
+  const report = buildMonthlyFinancialReport(now.getFullYear(), now.getMonth());
+  const receivables = allOpenReceivables();
+  const activeRevenue = records
+    .filter((record) => record.status === "Ativo")
+    .reduce((sum, record) => sum + (Number(record.value) || 0), 0);
+  const openAmount = receivables.reduce((sum, item) => sum + item.remainingAmount, 0);
+  const overdueItems = receivables.filter((item) => daysBetween(item.dueDate) < 0);
+  const overdueAmount = overdueItems.reduce((sum, item) => sum + item.remainingAmount, 0);
+  const defaultCount = new Set(overdueItems.map((item) => item.recordId)).size;
+  const next7 = receivables
+    .filter((item) => daysBetween(item.dueDate) >= 0 && daysBetween(item.dueDate) <= 7)
+    .reduce((sum, item) => sum + item.remainingAmount, 0);
+  const next30 = receivables
+    .filter((item) => daysBetween(item.dueDate) >= 0 && daysBetween(item.dueDate) <= 30)
+    .reduce((sum, item) => sum + item.remainingAmount, 0);
+  return {
+    activeRevenue,
+    expectedMonth: report.expected,
+    receivedMonth: report.received,
+    openAmount,
+    overdueAmount,
+    defaultCount,
+    next7,
+    next30,
+    upcomingCount: receivables.filter((item) => {
+      const difference = daysBetween(item.dueDate);
+      return difference >= 0 && difference <= 7;
+    }).length
+  };
+}
+
+function initializeFinancePeriodFilters() {
+  const monthSelect = $("financeReportMonth");
+  const yearSelect = $("financeReportYear");
+  if (monthSelect.options.length) return;
+  const months = [
+    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+  ];
+  months.forEach((month, index) => {
+    const option = document.createElement("option");
+    option.value = index;
+    option.textContent = month;
+    monthSelect.appendChild(option);
+  });
+  const currentYear = new Date().getFullYear();
+  for (let year = currentYear - 4; year <= currentYear + 2; year += 1) {
+    const option = document.createElement("option");
+    option.value = year;
+    option.textContent = year;
+    yearSelect.appendChild(option);
+  }
+  monthSelect.value = new Date().getMonth();
+  yearSelect.value = currentYear;
+}
+
+function selectedMonthlyReport() {
+  return buildMonthlyFinancialReport(
+    Number($("financeReportYear").value),
+    Number($("financeReportMonth").value)
+  );
+}
+
+function financeDueFilterMatch(item, filter) {
+  if (filter === "Todos") return true;
+  if (item.missingDue) return filter === "Sem vencimento";
+  const difference = daysBetween(item.dueDate);
+  if (filter === "Hoje") return difference === 0;
+  if (filter === "7dias") return difference >= 0 && difference <= 7;
+  if (filter === "30dias") return difference >= 0 && difference <= 30;
+  if (filter === "Vencidos") return difference < 0;
+  return false;
+}
+
+function filteredFinanceItems() {
+  const dueFilter = $("financeDueFilter").value;
+  const statusFilter = $("financeStatusFilter").value;
+  const receivables = allOpenReceivables();
+  const missingDue = records
+    .filter((record) => record.status === "Ativo" && !currentDueEntries(record).some((entry) => entry.dueDate))
+    .map((record) => ({
+      id: `missing-${record.id}`,
+      recordId: record.id,
+      record,
+      missingDue: true,
+      dueDate: "",
+      remainingAmount: 0,
+      label: "Sem vencimento",
+      financialStatus: getFinancialStatus(record)
+    }));
+  return [...receivables, ...missingDue].filter((item) => (
+    financeDueFilterMatch(item, dueFilter)
+    && (statusFilter === "Todos" || item.financialStatus === statusFilter)
+  ));
+}
+
+function financialStatusClass(status) {
+  return String(status || "").toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, "-");
+}
+
+function renderFinanceSummary() {
+  const metrics = currentFinancialMetrics();
+  $("financeActiveRevenue").textContent = formatMoney(metrics.activeRevenue);
+  $("financeExpectedMonth").textContent = formatMoney(metrics.expectedMonth);
+  $("financeReceivedMonth").textContent = formatMoney(metrics.receivedMonth);
+  $("financeOpenAmount").textContent = formatMoney(metrics.openAmount);
+  $("financeOverdueAmount").textContent = formatMoney(metrics.overdueAmount);
+  $("financeDefaultCount").textContent = metrics.defaultCount;
+  $("financeNext7").textContent = formatMoney(metrics.next7);
+  $("financeNext30").textContent = formatMoney(metrics.next30);
+}
+
+function financeItemMarkup(item, overdueOnly = false) {
+  const record = item.record;
+  const difference = item.missingDue ? Number.NaN : daysBetween(item.dueDate);
+  const dateLabel = item.missingDue
+    ? "Sem vencimento cadastrado"
+    : (difference < 0 ? `${Math.abs(difference)} dia(s) em atraso` : formatDate(item.dueDate));
+  return `
+    <article class="finance-item ${difference < 0 ? "is-overdue" : ""}">
+      <div class="finance-item-main">
+        <div>
+          <span class="financial-status ${financialStatusClass(item.financialStatus)}">${escapeHtml(item.financialStatus)}</span>
+          <h3>${escapeHtml(record.name || "-")}</h3>
+          ${record.company ? `<p>${escapeHtml(record.company)}</p>` : ""}
+          <small>${escapeHtml(record.phone || "-")}</small>
+        </div>
+        <div class="finance-item-values">
+          <strong>${escapeHtml(formatMoney(item.remainingAmount))}</strong>
+          <span>${escapeHtml(item.label || "")}</span>
+          <small>${escapeHtml(dateLabel)}</small>
+        </div>
+      </div>
+      <div class="finance-item-actions">
+        ${!item.missingDue ? `
+          <button class="btn btn-secondary btn-small" type="button" data-finance-action="whatsapp" data-record-id="${escapeHtml(record.id)}" data-receivable-id="${escapeHtml(item.id)}">WhatsApp</button>
+          <button class="btn btn-ghost btn-small" type="button" data-finance-action="copy" data-record-id="${escapeHtml(record.id)}" data-receivable-id="${escapeHtml(item.id)}">Copiar cobrança</button>
+          <button class="btn btn-primary btn-small" type="button" data-finance-action="payment" data-record-id="${escapeHtml(record.id)}" data-receivable-id="${escapeHtml(item.id)}" data-installment="${item.installment || 1}">Registrar pagamento</button>
+        ` : ""}
+        <button class="btn btn-warning btn-small" type="button" data-finance-action="history" data-record-id="${escapeHtml(record.id)}">${overdueOnly ? "Pagamentos e recibos" : "Histórico"}</button>
+      </div>
+    </article>
+  `;
+}
+
+function bindFinanceActions(container) {
+  container.querySelectorAll("[data-finance-action]").forEach((button) => {
+    const action = button.dataset.financeAction;
+    const recordId = button.dataset.recordId;
+    const receivableId = button.dataset.receivableId;
+    if (action === "whatsapp") button.onclick = () => openFinanceWhatsApp(recordId, receivableId);
+    if (action === "copy") button.onclick = () => copyCollectionMessage(recordId, receivableId);
+    if (action === "payment") {
+      button.onclick = () => openPaymentDialog(recordId, Number(button.dataset.installment) || 1, receivableId);
+    }
+    if (action === "history") button.onclick = () => showHistory(recordId);
+  });
+}
+
+function renderFinanceLists() {
+  const dueContainer = $("financeDueList");
+  const items = filteredFinanceItems();
+  dueContainer.innerHTML = items.length
+    ? items.map((item) => financeItemMarkup(item)).join("")
+    : '<div class="finance-empty">Nenhum vencimento encontrado para os filtros selecionados.</div>';
+  bindFinanceActions(dueContainer);
+
+  const overdueContainer = $("financeOverdueList");
+  const overdueItems = allOpenReceivables()
+    .filter((item) => daysBetween(item.dueDate) < 0)
+    .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)));
+  overdueContainer.innerHTML = overdueItems.length
+    ? overdueItems.map((item) => financeItemMarkup(item, true)).join("")
+    : '<div class="finance-empty">Nenhum cliente inadimplente.</div>';
+  bindFinanceActions(overdueContainer);
+}
+
+function renderMonthlyReport() {
+  const report = selectedMonthlyReport();
+  $("reportExpected").textContent = formatMoney(report.expected);
+  $("reportReceived").textContent = formatMoney(report.received);
+  $("reportOpen").textContent = formatMoney(report.open);
+  $("reportOverdue").textContent = formatMoney(report.overdue);
+  $("reportPaidCount").textContent = report.paidCount;
+  $("reportPendingCount").textContent = report.pendingCount;
+  $("reportDefaultCount").textContent = report.defaultCount;
+  $("reportReceiptCount").textContent = report.receiptCount;
+  $("reportPartialCount").textContent = report.partialCount;
+  $("reportCanceledCount").textContent = report.canceledCount;
+  const body = $("financeReportTable");
+  body.innerHTML = report.payments.length
+    ? report.payments.map((payment) => `
+      <tr>
+        <td>${escapeHtml(payment.record.name || "-")}${payment.record.company ? `<br><span class="muted">${escapeHtml(payment.record.company)}</span>` : ""}</td>
+        <td>${escapeHtml(formatDate(payment.paidAt))}</td>
+        <td>${escapeHtml(formatMoney(payment.amount))}</td>
+        <td>${escapeHtml(payment.paymentMethod || "Não informado")}</td>
+        <td><span class="financial-status ${payment.isPartial ? "parcialmente-pago" : "em-dia"}">${payment.isPartial ? "Parcial" : "Quitado"}</span></td>
+        <td>${payment.receiptNumber ? escapeHtml(payment.receiptNumber) : "-"}</td>
+      </tr>
+    `).join("")
+    : '<tr><td colspan="6">Nenhum pagamento registrado no período.</td></tr>';
+}
+
+function renderFinance() {
+  renderFinanceSummary();
+  renderFinanceLists();
+  renderMonthlyReport();
+}
+
+function buildPrintableFinancialReport(report) {
+  const monthNames = [
+    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+  ];
+  const rows = report.payments.length
+    ? report.payments.map((payment) => `
+      <tr>
+        <td>${escapeHtml(payment.record.name || "-")}</td>
+        <td>${escapeHtml(formatDate(payment.paidAt))}</td>
+        <td>${escapeHtml(formatMoney(payment.amount))}</td>
+        <td>${escapeHtml(payment.paymentMethod || "Não informado")}</td>
+        <td>${payment.isPartial ? "Parcial" : "Quitado"}</td>
+        <td>${escapeHtml(payment.receiptNumber || "-")}</td>
+      </tr>
+    `).join("")
+    : '<tr><td colspan="6">Nenhum pagamento registrado no período.</td></tr>';
+  return `<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="UTF-8"><title>Relatório Financeiro AXIS 1</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;color:#17181c;background:#f4f4f2}.page{max-width:980px;margin:30px auto;background:#fff;padding:42px;box-shadow:0 10px 40px rgba(0,0,0,.1)}header{background:#0d0f14;color:#fff;padding:28px;border-left:8px solid #ff6a00}.brand{color:#ff6a00;font-weight:900;letter-spacing:.15em}h1{margin:10px 0 4px}.period{color:#c7c8cc}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:24px 0}.card{border:1px solid #ddd;padding:14px}.card span{display:block;color:#666;font-size:11px;text-transform:uppercase}.card strong{display:block;margin-top:8px;font-size:18px}table{width:100%;border-collapse:collapse;margin-top:24px}th,td{padding:10px;border-bottom:1px solid #ddd;text-align:left;font-size:12px}th{background:#f0f0ee;color:#555;text-transform:uppercase}footer{margin-top:28px;color:#777;font-size:11px}@media print{body{background:#fff}.page{margin:0;max-width:none;box-shadow:none}.no-print{display:none}}@media(max-width:700px){.summary{grid-template-columns:repeat(2,1fr)}.page{padding:20px}}
+</style></head><body><main class="page">
+<header><div class="brand">AXIS 1</div><h1>Relatório Financeiro Mensal</h1><div class="period">${monthNames[report.month]} de ${report.year}</div></header>
+<section class="summary">
+<div class="card"><span>Total previsto</span><strong>${formatMoney(report.expected)}</strong></div>
+<div class="card"><span>Total recebido</span><strong>${formatMoney(report.received)}</strong></div>
+<div class="card"><span>Em aberto</span><strong>${formatMoney(report.open)}</strong></div>
+<div class="card"><span>Em atraso</span><strong>${formatMoney(report.overdue)}</strong></div>
+<div class="card"><span>Clientes pagos</span><strong>${report.paidCount}</strong></div>
+<div class="card"><span>Pendentes</span><strong>${report.pendingCount}</strong></div>
+<div class="card"><span>Inadimplentes</span><strong>${report.defaultCount}</strong></div>
+<div class="card"><span>Recibos</span><strong>${report.receiptCount}</strong></div>
+<div class="card"><span>Pagamentos parciais</span><strong>${report.partialCount}</strong></div>
+<div class="card"><span>Cancelados</span><strong>${report.canceledCount}</strong></div>
+</section>
+<table><thead><tr><th>Cliente</th><th>Data</th><th>Valor</th><th>Forma</th><th>Status</th><th>Recibo</th></tr></thead><tbody>${rows}</tbody></table>
+<footer>Relatório gerado pelo CRM AXIS 1 em ${formatDateTime(report.generatedAt)}. Documento preparado para impressão.</footer>
+</main></body></html>`;
+}
+
+function exportMonthlyFinancialReport() {
+  const report = selectedMonthlyReport();
+  const reportSnapshot = {
+    ...report,
+    payments: report.payments.map((payment) => ({
+      id: payment.id,
+      recordId: payment.record.id,
+      clientName: payment.record.name,
+      paidAt: payment.paidAt,
+      amount: payment.amount,
+      paymentMethod: payment.paymentMethod,
+      isPartial: payment.isPartial,
+      receiptNumber: payment.receiptNumber
+    }))
+  };
+  applyImportantChange("Antes de registrar exportação do relatório financeiro", () => {
+    financialReports = mergeFinancialReports([reportSnapshot], financialReports);
+  });
+  const blob = new Blob([buildPrintableFinancialReport(report)], { type: "text/html;charset=utf-8" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `relatorio-financeiro-axis1-${report.year}-${String(report.month + 1).padStart(2, "0")}.html`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  toast("Relatório financeiro exportado em formato imprimível.");
 }
 
 function isPaymentRegisteredThisCycle(record, installment) {
@@ -1230,7 +1906,8 @@ function backupPayload() {
     trash: cloneData(trash),
     monthlyGoal,
     snapshots: cloneData(getSnapshots()),
-    receiptCounters: cloneData(receiptCounters)
+    receiptCounters: cloneData(receiptCounters),
+    financialReports: cloneData(financialReports)
   };
 }
 
@@ -1266,7 +1943,10 @@ function parseBackup(data) {
       : [],
     receiptCounters: metadata.receiptCounters && typeof metadata.receiptCounters === "object"
       ? metadata.receiptCounters
-      : {}
+      : {},
+    financialReports: Array.isArray(metadata.financialReports)
+      ? metadata.financialReports
+      : []
   };
 }
 
@@ -1324,6 +2004,18 @@ function mergePaymentHistory(current = [], incoming = []) {
       notes: (currentItem.notes || "").length >= (incomingItem.notes || "").length
         ? currentItem.notes
         : incomingItem.notes,
+      expectedAmount: Math.max(
+        Number(currentItem.expectedAmount) || 0,
+        Number(incomingItem.expectedAmount) || 0
+      ),
+      cycleId: currentItem.cycleId || incomingItem.cycleId,
+      isPartial: Boolean(currentItem.isPartial || incomingItem.isPartial),
+      balanceRemaining: Math.max(
+        Number(currentItem.balanceRemaining) || 0,
+        Number(incomingItem.balanceRemaining) || 0
+      ),
+      balanceDueDate: currentItem.balanceDueDate || incomingItem.balanceDueDate,
+      paymentStatus: currentItem.paymentStatus || incomingItem.paymentStatus,
       receiptNumber: currentItem.receiptNumber || incomingItem.receiptNumber,
       receiptGeneratedAt: currentItem.receiptGeneratedAt || incomingItem.receiptGeneratedAt,
       receiptData: currentItem.receiptData || incomingItem.receiptData
@@ -1334,6 +2026,18 @@ function mergePaymentHistory(current = [], incoming = []) {
 
 function mergeTimelines(current = [], incoming = [], prefix) {
   return uniqueTimeline([...current, ...incoming], prefix);
+}
+
+function mergeOpenBalances(current = [], incoming = []) {
+  const balances = new Map();
+  [...incoming, ...current].map((item, index) => normalizeOpenBalance(item, "", index)).forEach((balance) => {
+    const key = balance.cycleId || balance.id;
+    const existing = balances.get(key);
+    if (!existing || String(balance.updatedAt) >= String(existing.updatedAt)) {
+      balances.set(key, balance);
+    }
+  });
+  return [...balances.values()].filter((balance) => balance.remainingAmount > 0);
 }
 
 function mergeMostComplete(current, incoming) {
@@ -1378,9 +2082,12 @@ function mergeMostComplete(current, incoming) {
   }
   merged.lastPaidDate = [current.lastPaidDate, incoming.lastPaidDate].filter(Boolean).sort().pop() || null;
   merged.paymentHistory = mergePaymentHistory(current.paymentHistory, incoming.paymentHistory);
+  merged.openBalances = mergeOpenBalances(current.openBalances, incoming.openBalances);
   merged.commercialHistory = mergeTimelines(current.commercialHistory, incoming.commercialHistory, "commercial");
   merged.financialHistory = mergeTimelines(current.financialHistory, incoming.financialHistory, "financial");
   merged.receipts = uniqueReceipts([...(current.receipts || []), ...(incoming.receipts || [])]);
+  merged.financialStatus = current.financialStatus || incoming.financialStatus || "";
+  merged.canceledAt = current.canceledAt || incoming.canceledAt || null;
   merged.deletedAt = current.deletedAt || incoming.deletedAt || null;
   return normalizeRecord(merged);
 }
@@ -1462,6 +2169,16 @@ function mergeReceiptCounters(current, incoming) {
   return merged;
 }
 
+function mergeFinancialReports(current = [], incoming = []) {
+  const reports = new Map();
+  [...incoming, ...current].forEach((report) => {
+    if (!report || typeof report !== "object") return;
+    const key = report.id || `${report.year}-${report.month}`;
+    if (!reports.has(key)) reports.set(key, report);
+  });
+  return [...reports.values()].slice(0, 36);
+}
+
 function closeImportDialog() {
   if ($("importDialog").open) $("importDialog").close();
   pendingImport = null;
@@ -1486,6 +2203,7 @@ function performImport(mode) {
     trash = cloneData(backup.trash);
     monthlyGoal = backup.monthlyGoal;
     receiptCounters = cloneData(backup.receiptCounters);
+    financialReports = cloneData(backup.financialReports);
     stats.imported = records.length;
     setSnapshots(combineSnapshots(safetySnapshot, backup.snapshots));
   } else {
@@ -1493,6 +2211,7 @@ function performImport(mode) {
     trash = mergeTrashCollections(trash, backup.trash);
     if (!monthlyGoal && backup.monthlyGoal) monthlyGoal = backup.monthlyGoal;
     receiptCounters = mergeReceiptCounters(receiptCounters, backup.receiptCounters);
+    financialReports = mergeFinancialReports(financialReports, backup.financialReports);
     setSnapshots(combineSnapshots(currentSnapshots, backup.snapshots));
   }
 
@@ -1517,6 +2236,7 @@ function restoreSnapshot(id) {
   trash = migrateArray(target.data.trash);
   monthlyGoal = parseMoney(target.data.monthlyGoal);
   receiptCounters = cloneData(target.data.receiptCounters || {});
+  financialReports = cloneData(target.data.financialReports || []);
   persistData();
   loadGoal();
   render();
@@ -1567,6 +2287,10 @@ function getFilteredRecords() {
   const temperature = $("temperatureFilter").value;
   const stage = $("stageFilter").value;
   const commercial = $("commercialFilter").value;
+  const financialStatus = $("recordFinancialStatusFilter").value;
+  const dueFilter = $("recordDueFilter").value;
+  const paymentMethod = $("recordPaymentMethodFilter").value;
+  const plan = $("recordPlanFilter").value;
 
   return records.filter((record) => {
     const matchesStatus = status === "Todos" || record.status === status;
@@ -1581,6 +2305,25 @@ function getFilteredRecords() {
       || (commercial === "Perdidos" && record.commercialStage === "Perdido")
       || (commercial === "Fechados" && record.commercialStage === "Fechado")
     );
+    const calculatedFinancialStatus = getFinancialStatus(record);
+    const receivables = getRecordReceivables(record);
+    const matchesFinancialStatus = (
+      financialStatus === "Todos" || calculatedFinancialStatus === financialStatus
+    );
+    const matchesDue = (
+      dueFilter === "Todos"
+      || (dueFilter === "7dias" && receivables.some((item) => {
+        const difference = daysBetween(item.dueDate);
+        return difference >= 0 && difference <= 7;
+      }))
+      || (dueFilter === "Vencidos" && receivables.some((item) => daysBetween(item.dueDate) < 0))
+    );
+    const matchesPaymentMethod = (
+      paymentMethod === "Todos"
+      || (record.paymentHistory || []).some((payment) => payment.paymentMethod === paymentMethod)
+      || (paymentMethod === "Não informado" && !(record.paymentHistory || []).length)
+    );
+    const matchesPlan = plan === "Todos" || record.plan === plan;
     const text = [
       record.name,
       record.company,
@@ -1599,6 +2342,10 @@ function getFilteredRecords() {
       && matchesTemperature
       && matchesStage
       && matchesCommercial
+      && matchesFinancialStatus
+      && matchesDue
+      && matchesPaymentMethod
+      && matchesPlan
       && text.includes(query);
   });
 }
@@ -1616,20 +2363,17 @@ function buildAlerts() {
   const alerts = [];
   records.forEach((record) => {
     if (record.status === "Ativo") {
-      const dues = record.paymentType === "2x"
-        ? [{ number: 1, date: record.dueDate }, { number: 2, date: record.dueDate2 }]
-        : [{ number: 1, date: record.dueDate }];
-
-      dues.forEach((due) => {
-        if (!due.date || isPaymentRegisteredThisCycle(record, due.number)) return;
-        const difference = daysBetween(due.date);
-        const label = record.paymentType === "2x" ? `${due.number}ª parcela` : "mensalidade";
+      getRecordReceivables(record).forEach((receivable) => {
+        const difference = daysBetween(receivable.dueDate);
+        const label = receivable.isPartial
+          ? `saldo de ${receivable.label.toLowerCase()}`
+          : (record.paymentType === "2x" ? receivable.label : "mensalidade");
         if (difference < 0) {
           alerts.push({
             urgent: true,
             type: "Cobrança vencida",
-            text: `${record.name} — ${label} venceu em ${formatDate(due.date)}`,
-            action: () => openCharge(record.id, due.number),
+            text: `${record.name} — ${label} venceu em ${formatDate(receivable.dueDate)}`,
+            action: () => openCharge(record.id, receivable.installment),
             label: "Cobrar"
           });
         } else if (difference === 0) {
@@ -1637,15 +2381,15 @@ function buildAlerts() {
             urgent: true,
             type: "Vence hoje",
             text: `${record.name} — ${label} vence hoje`,
-            action: () => openCharge(record.id, due.number),
+            action: () => openCharge(record.id, receivable.installment),
             label: "Cobrar"
           });
         } else if (difference >= 1 && difference <= 3) {
           alerts.push({
             urgent: false,
             type: `Vence em ${difference} dia(s)`,
-            text: `${record.name} — ${label} vence em ${formatDate(due.date)}`,
-            action: () => openCharge(record.id, due.number),
+            text: `${record.name} — ${label} vence em ${formatDate(receivable.dueDate)}`,
+            action: () => openCharge(record.id, receivable.installment),
             label: "Cobrar"
           });
         }
@@ -1695,27 +2439,15 @@ function renderAlerts() {
 function renderMetrics() {
   const active = records.filter((record) => record.status === "Ativo");
   const leads = records.filter((record) => record.status === "Lead");
-  const activeRevenue = active.reduce((sum, record) => sum + (Number(record.value) || 0), 0);
-  const received = paymentMonthTotal();
-  const overdue = records.filter((record) => (
-    record.status === "Ativo"
-    && (
-      (record.dueDate && daysBetween(record.dueDate) < 0 && !isPaymentRegisteredThisCycle(record, 1))
-      || (
-        record.paymentType === "2x"
-        && record.dueDate2
-        && daysBetween(record.dueDate2) < 0
-        && !isPaymentRegisteredThisCycle(record, 2)
-      )
-    )
-  )).length;
-
-  $("receivedMonth").textContent = formatMoney(received);
-  $("remainingGoal").textContent = formatMoney(Math.max(monthlyGoal - received, 0));
-  $("activeRevenue").textContent = formatMoney(activeRevenue);
+  const metrics = currentFinancialMetrics();
+  $("dashboardExpectedMonth").textContent = formatMoney(metrics.expectedMonth);
+  $("receivedMonth").textContent = formatMoney(metrics.receivedMonth);
+  $("dashboardOverdueAmount").textContent = formatMoney(metrics.overdueAmount);
+  $("dashboardDefaultCount").textContent = metrics.defaultCount;
+  $("dashboardUpcomingCount").textContent = metrics.upcomingCount;
+  $("activeRevenue").textContent = formatMoney(metrics.activeRevenue);
   $("activeCount").textContent = active.length;
   $("leadCount").textContent = leads.length;
-  $("overdueCount").textContent = overdue;
 }
 
 function renderPipelineSummary() {
@@ -1811,21 +2543,16 @@ function renderTable() {
   const body = $("recordsTable");
   const data = getFilteredRecords();
   if (!data.length) {
-    body.innerHTML = '<tr><td colspan="8">Nenhum cadastro encontrado.</td></tr>';
+    body.innerHTML = '<tr><td colspan="9">Nenhum cadastro encontrado.</td></tr>';
     return;
   }
 
   body.innerHTML = "";
   data.forEach((record) => {
-    const overdue = record.status === "Ativo" && (
-      (record.dueDate && daysBetween(record.dueDate) < 0 && !isPaymentRegisteredThisCycle(record, 1))
-      || (
-        record.paymentType === "2x"
-        && record.dueDate2
-        && daysBetween(record.dueDate2) < 0
-        && !isPaymentRegisteredThisCycle(record, 2)
-      )
-    );
+    const financialStatus = getFinancialStatus(record);
+    const receivables = getRecordReceivables(record);
+    const overdue = financialStatus === "Em atraso";
+    const openAmount = receivables.reduce((sum, item) => sum + item.remainingAmount, 0);
     const row = document.createElement("tr");
     if (overdue) row.classList.add("row-overdue");
     const paymentText = record.paymentType === "2x"
@@ -1879,6 +2606,10 @@ function renderTable() {
         <span class="badge ${escapeHtml(record.status)}">${escapeHtml(record.status)}</span>
         ${overdue ? '<br><span class="badge overdue">atrasado</span>' : ""}
       </td>
+      <td>
+        <span class="financial-status ${financialStatusClass(financialStatus)}">${escapeHtml(financialStatus)}</span>
+        ${openAmount > 0 ? `<br><span class="muted">Aberto: ${escapeHtml(formatMoney(openAmount))}</span>` : ""}
+      </td>
       <td>${escapeHtml(paymentText)}</td>
       <td>${dueText}</td>
       <td>${escapeHtml(formatDate(record.lastPaidDate))}</td>
@@ -1922,6 +2653,7 @@ function showHistory(id) {
             <strong>${escapeHtml(item.installment)}</strong>
             <span>Pago em ${escapeHtml(formatDate(item.paidAt))} • ${escapeHtml(item.paymentMethod || "Não informado")}</span>
             <span>Referência: ${escapeHtml(item.referencePeriod || "-")} • Vencimento: ${escapeHtml(formatDate(item.previousDueDate))}</span>
+            <span>Status: ${escapeHtml(item.isPartial ? "Pagamento parcial" : "Quitado")}${item.balanceRemaining > 0 ? ` • Saldo: ${escapeHtml(formatMoney(item.balanceRemaining))} até ${escapeHtml(formatDate(item.balanceDueDate))}` : ""}</span>
             ${item.notes ? `<span>Observações: ${escapeHtml(item.notes)}</span>` : ""}
             ${hasReceipt ? `<span class="receipt-number">Recibo ${escapeHtml(item.receiptNumber)}</span>` : ""}
           </div>
@@ -1956,6 +2688,7 @@ function showHistory(id) {
               <strong>${escapeHtml(item.type)}</strong>
               <small>${escapeHtml(formatDateTime(item.createdAt))}</small>
               <p>${escapeHtml(item.description)}</p>
+              ${item.value ? `<small>Valor: ${escapeHtml(formatMoney(item.value))} • ${escapeHtml(item.actor || "Sistema")}</small>` : `<small>${escapeHtml(item.actor || "Sistema")}</small>`}
             </div>
           </div>
         `).join("")}
@@ -2062,10 +2795,12 @@ function openSnapshotsDialog() {
 }
 
 function render() {
+  initializeFinancePeriodFilters();
   renderMetrics();
   renderAlerts();
   renderPipelineSummary();
   renderPipeline();
+  renderFinance();
   renderTable();
   renderTrash();
   renderSnapshotSummary();
@@ -2089,6 +2824,18 @@ $("paymentForm").addEventListener("submit", (event) => {
     toast("Informe um valor recebido maior que zero.");
     return;
   }
+  const record = records.find((item) => item.id === $("paymentRecordId").value);
+  const cycleId = $("paymentCycleId").value;
+  const receivable = record?.paymentHistory
+    ? getRecordReceivables(record).find((item) => item.cycleId === cycleId)
+    : null;
+  const remainingAmount = receivable?.remainingAmount
+    ?? expectedInstallmentAmount(record || {}, Number($("paymentInstallment").value) || 1);
+  const balanceDueDate = $("paymentBalanceDueDate").value;
+  if (amount < remainingAmount - 0.009 && !balanceDueDate) {
+    toast("Informe o vencimento do saldo restante para registrar um pagamento parcial.");
+    return;
+  }
   registerPayment(
     $("paymentRecordId").value,
     Number($("paymentInstallment").value) || 1,
@@ -2097,7 +2844,9 @@ $("paymentForm").addEventListener("submit", (event) => {
       paymentMethod: $("paymentMethod").value,
       paidAt: $("paymentDate").value,
       referencePeriod: $("paymentReference").value.trim(),
-      notes: $("paymentNotes").value.trim()
+      notes: $("paymentNotes").value.trim(),
+      cycleId,
+      balanceDueDate
     }
   );
 });
@@ -2155,10 +2904,19 @@ $("saveGoalBtn").onclick = saveGoal;
   "sourceFilter",
   "temperatureFilter",
   "stageFilter",
-  "commercialFilter"
+  "commercialFilter",
+  "recordFinancialStatusFilter",
+  "recordDueFilter",
+  "recordPaymentMethodFilter",
+  "recordPlanFilter"
 ].forEach((id) => {
   $(id).addEventListener(id === "searchInput" ? "input" : "change", renderTable);
 });
+$("financeDueFilter").addEventListener("change", renderFinanceLists);
+$("financeStatusFilter").addEventListener("change", renderFinanceLists);
+$("financeReportMonth").addEventListener("change", renderMonthlyReport);
+$("financeReportYear").addEventListener("change", renderMonthlyReport);
+$("exportFinanceReportBtn").onclick = exportMonthlyFinancialReport;
 $("closeHistoryBtn").onclick = () => $("historyDialog").close();
 $("closeCommercialHistoryBtn").onclick = () => $("commercialHistoryDialog").close();
 $("closePaymentBtn").onclick = () => $("paymentDialog").close();

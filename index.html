@@ -13,13 +13,14 @@
       <h1>CRM v3</h1>
       <p class="subtitle">Comercial, clientes, financeiro e dados protegidos em uma operação integrada.</p>
     </div>
-    <div class="version-pill">Etapa 2 • Pipeline e recibos</div>
+    <div class="version-pill">Etapa 3 • Financeiro avançado</div>
   </header>
 
   <nav class="tabs" aria-label="Navegação principal">
     <button class="tab-button active" type="button" data-tab="dashboard" aria-selected="true">Dashboard</button>
     <button class="tab-button" type="button" data-tab="pipeline" aria-selected="false">Pipeline Comercial</button>
     <button class="tab-button" type="button" data-tab="records" aria-selected="false">Cadastros</button>
+    <button class="tab-button" type="button" data-tab="finance" aria-selected="false">Financeiro</button>
     <button class="tab-button" type="button" data-tab="security" aria-selected="false">Backup e Segurança</button>
   </nav>
 
@@ -39,12 +40,14 @@
       </section>
 
       <section class="cards">
+        <article class="metric-card"><span>Previsto no mês</span><strong id="dashboardExpectedMonth">R$ 0,00</strong></article>
         <article class="metric-card"><span>Recebido no mês</span><strong id="receivedMonth">R$ 0,00</strong></article>
-        <article class="metric-card"><span>Falta para meta</span><strong id="remainingGoal">R$ 0,00</strong></article>
+        <article class="metric-card danger"><span>Valor em atraso</span><strong id="dashboardOverdueAmount">R$ 0,00</strong></article>
+        <article class="metric-card danger"><span>Clientes inadimplentes</span><strong id="dashboardDefaultCount">0</strong></article>
+        <article class="metric-card"><span>Próximos vencimentos</span><strong id="dashboardUpcomingCount">0</strong></article>
         <article class="metric-card"><span>Receita ativa mensal</span><strong id="activeRevenue">R$ 0,00</strong></article>
         <article class="metric-card"><span>Clientes ativos</span><strong id="activeCount">0</strong></article>
         <article class="metric-card"><span>Leads abertos</span><strong id="leadCount">0</strong></article>
-        <article class="metric-card danger"><span>Atrasados</span><strong id="overdueCount">0</strong></article>
       </section>
 
       <section class="panel">
@@ -85,6 +88,119 @@
       </section>
 
       <div id="pipelineBoard" class="pipeline-board" aria-label="Etapas do pipeline comercial"></div>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="finance">
+      <section class="panel protection finance-hero">
+        <div>
+          <p class="section-kicker">Controle financeiro</p>
+          <h2>Financeiro Avançado</h2>
+          <p>Recebimentos, saldos, inadimplência e previsões em uma visão única da operação.</p>
+        </div>
+        <div class="finance-period">
+          <label>Mês do relatório
+            <select id="financeReportMonth" aria-label="Mês do relatório financeiro"></select>
+          </label>
+          <label>Ano
+            <select id="financeReportYear" aria-label="Ano do relatório financeiro"></select>
+          </label>
+          <button id="exportFinanceReportBtn" class="btn btn-primary" type="button">Exportar relatório</button>
+        </div>
+      </section>
+
+      <section class="finance-summary">
+        <article class="metric-card"><span>Receita ativa mensal</span><strong id="financeActiveRevenue">R$ 0,00</strong></article>
+        <article class="metric-card"><span>Previsto no mês</span><strong id="financeExpectedMonth">R$ 0,00</strong></article>
+        <article class="metric-card"><span>Recebido no mês</span><strong id="financeReceivedMonth">R$ 0,00</strong></article>
+        <article class="metric-card"><span>Valor em aberto</span><strong id="financeOpenAmount">R$ 0,00</strong></article>
+        <article class="metric-card danger"><span>Valor em atraso</span><strong id="financeOverdueAmount">R$ 0,00</strong></article>
+        <article class="metric-card danger"><span>Inadimplentes</span><strong id="financeDefaultCount">0</strong></article>
+        <article class="metric-card"><span>Previsto em 7 dias</span><strong id="financeNext7">R$ 0,00</strong></article>
+        <article class="metric-card"><span>Previsto em 30 dias</span><strong id="financeNext30">R$ 0,00</strong></article>
+      </section>
+
+      <section class="panel finance-toolbar">
+        <div>
+          <p class="section-kicker">Agenda financeira</p>
+          <h2>Vencimentos e recebimentos</h2>
+        </div>
+        <div class="finance-filters">
+          <select id="financeDueFilter" aria-label="Filtrar vencimentos financeiros">
+            <option value="Todos">Todos os vencimentos</option>
+            <option value="Hoje">Vencem hoje</option>
+            <option value="7dias">Próximos 7 dias</option>
+            <option value="30dias">Próximos 30 dias</option>
+            <option value="Vencidos">Vencidos</option>
+            <option value="Sem vencimento">Sem vencimento</option>
+          </select>
+          <select id="financeStatusFilter" aria-label="Filtrar status financeiro">
+            <option value="Todos">Todos os status</option>
+            <option value="Em dia">Em dia</option>
+            <option value="Pendente">Pendente</option>
+            <option value="Parcialmente pago">Parcialmente pago</option>
+            <option value="Em atraso">Em atraso</option>
+            <option value="Cancelado">Cancelado</option>
+          </select>
+        </div>
+      </section>
+
+      <section class="finance-grid">
+        <article class="panel finance-list-panel">
+          <div class="section-head">
+            <div>
+              <p class="section-kicker">Previsão</p>
+              <h2>Vencimentos</h2>
+            </div>
+          </div>
+          <div id="financeDueList" class="finance-list"></div>
+        </article>
+
+        <article class="panel finance-list-panel">
+          <div class="section-head">
+            <div>
+              <p class="section-kicker">Atenção</p>
+              <h2>Clientes inadimplentes</h2>
+            </div>
+          </div>
+          <div id="financeOverdueList" class="finance-list"></div>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="section-head">
+          <div>
+            <p class="section-kicker">Competência mensal</p>
+            <h2>Relatório financeiro</h2>
+          </div>
+        </div>
+        <section class="monthly-report-cards">
+          <article><span>Total previsto</span><strong id="reportExpected">R$ 0,00</strong></article>
+          <article><span>Total recebido</span><strong id="reportReceived">R$ 0,00</strong></article>
+          <article><span>Total em aberto</span><strong id="reportOpen">R$ 0,00</strong></article>
+          <article><span>Total em atraso</span><strong id="reportOverdue">R$ 0,00</strong></article>
+          <article><span>Clientes pagos</span><strong id="reportPaidCount">0</strong></article>
+          <article><span>Pendentes</span><strong id="reportPendingCount">0</strong></article>
+          <article><span>Inadimplentes</span><strong id="reportDefaultCount">0</strong></article>
+          <article><span>Recibos gerados</span><strong id="reportReceiptCount">0</strong></article>
+          <article><span>Pagamentos parciais</span><strong id="reportPartialCount">0</strong></article>
+          <article><span>Cancelados no mês</span><strong id="reportCanceledCount">0</strong></article>
+        </section>
+        <div class="table-wrap finance-report-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Cliente</th>
+                <th>Data</th>
+                <th>Valor</th>
+                <th>Forma</th>
+                <th>Status</th>
+                <th>Recibo</th>
+              </tr>
+            </thead>
+            <tbody id="financeReportTable"></tbody>
+          </table>
+        </div>
+      </section>
     </section>
 
     <section class="tab-panel" data-tab-panel="records">
@@ -260,6 +376,38 @@
               <option value="Perdidos">Leads perdidos</option>
               <option value="Fechados">Leads fechados</option>
             </select>
+            <select id="recordFinancialStatusFilter" aria-label="Filtrar por status financeiro">
+              <option value="Todos">Todos os status financeiros</option>
+              <option value="Em dia">Em dia</option>
+              <option value="Pendente">Pendente</option>
+              <option value="Parcialmente pago">Pagamento parcial</option>
+              <option value="Em atraso">Inadimplente</option>
+              <option value="Cancelado">Cancelado</option>
+            </select>
+            <select id="recordDueFilter" aria-label="Filtrar por vencimento financeiro">
+              <option value="Todos">Todos os vencimentos</option>
+              <option value="7dias">Vencimento próximo</option>
+              <option value="Vencidos">Vencido</option>
+            </select>
+            <select id="recordPaymentMethodFilter" aria-label="Filtrar por forma de pagamento">
+              <option value="Todos">Todas as formas</option>
+              <option value="Pix">Pix</option>
+              <option value="Transferência">Transferência</option>
+              <option value="Boleto">Boleto</option>
+              <option value="Cartão">Cartão</option>
+              <option value="Dinheiro">Dinheiro</option>
+              <option value="Outro">Outro</option>
+              <option value="Não informado">Não informado</option>
+            </select>
+            <select id="recordPlanFilter" aria-label="Filtrar por plano ou serviço">
+              <option value="Todos">Todos os planos</option>
+              <option value="Essencial">Essencial</option>
+              <option value="Estratégico">Estratégico</option>
+              <option value="Autoridade">Autoridade</option>
+              <option value="Autoridade + Landing Page">Autoridade + Landing Page</option>
+              <option value="Autoridade + Site">Autoridade + Site</option>
+              <option value="Outro">Outro</option>
+            </select>
           </div>
         </div>
 
@@ -271,6 +419,7 @@
                 <th>Comercial</th>
                 <th>Plano/Valor</th>
                 <th>Status</th>
+                <th>Financeiro</th>
                 <th>Pagamento</th>
                 <th>Vencimento(s)</th>
                 <th>Último pagamento</th>
@@ -296,7 +445,7 @@
         <article class="panel security-card">
           <span class="security-icon">01</span>
           <h2>Backup completo</h2>
-          <p>Inclui cadastros, pipeline, pagamentos, recibos, lixeira, meta mensal e versões anteriores.</p>
+      <p>Inclui cadastros, pipeline, pagamentos, saldos, relatórios, recibos, lixeira, meta mensal e versões anteriores.</p>
           <div class="security-actions">
             <button id="exportBackupBtn" class="btn btn-primary" type="button">Exportar backup</button>
             <label class="btn btn-secondary file-label">
@@ -362,6 +511,8 @@
     <form id="paymentForm">
       <input id="paymentRecordId" type="hidden" />
       <input id="paymentInstallment" type="hidden" />
+      <input id="paymentCycleId" type="hidden" />
+      <div id="paymentBalanceSummary" class="payment-balance-summary"></div>
       <div class="grid two-columns">
         <label>Valor recebido
           <input id="paymentAmount" inputmode="decimal" required />
@@ -381,6 +532,9 @@
         </label>
         <label>Período de referência
           <input id="paymentReference" required placeholder="Ex: Junho/2026" />
+        </label>
+        <label>Vencimento do saldo restante
+          <input id="paymentBalanceDueDate" type="date" />
         </label>
       </div>
       <label>Observações do pagamento

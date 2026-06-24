@@ -1,6 +1,18 @@
-# CRM AXIS 1 v3 — Etapa 2
+# CRM AXIS 1 v3 — Etapa 3
 
 Aplicação em HTML, CSS e JavaScript puro, sem dependências externas. Os dados continuam armazenados no `localStorage` do navegador.
+
+## Financeiro Avançado
+
+- visão geral de receita prevista, recebida, em aberto e em atraso;
+- status financeiro automático por cliente;
+- pagamentos totais e parciais, com controle do saldo restante;
+- vencimentos de hoje, próximos 7 e 30 dias, vencidos e sem data;
+- seção de inadimplência com WhatsApp, cobrança, pagamento e recibos;
+- histórico financeiro estruturado com valor, data, descrição e responsável;
+- relatório mensal com exportação em arquivo profissional imprimível;
+- filtros financeiros integrados aos Cadastros;
+- indicadores financeiros resumidos no Dashboard.
 
 ## Pipeline Comercial
 
@@ -31,5 +43,5 @@ Registros e pagamentos antigos são migrados automaticamente com valores padrão
 1. Exporte um backup da versão atual.
 2. Substitua `index.html`, `style.css`, `script.js` e `README.md`.
 3. Abra o CRM e confirme os dados existentes.
-4. Teste um pagamento e gere um recibo.
-5. Exporte um novo backup no formato da Etapa 2.
+4. Teste um pagamento parcial, quite o saldo e gere os dois recibos.
+5. Exporte um relatório mensal e um novo backup no formato da Etapa 3.
