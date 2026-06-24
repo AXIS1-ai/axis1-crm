@@ -1,4 +1,4 @@
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 const STORAGE_KEY = "axis1_crm_v2_insano";
 const LEGACY_KEYS = [
   "axis1_crm_v2_insano",
@@ -15,7 +15,33 @@ const LEGACY_KEYS = [
 const SNAPSHOT_KEY = "axis1_crm_v2_snapshots";
 const TRASH_KEY = "axis1_crm_v2_trash";
 const GOAL_KEY = "axis1_crm_v2_goal";
+const RECEIPT_COUNTER_KEY = "axis1_crm_v3_receipt_counters";
 const MAX_SNAPSHOTS = 10;
+const AXIS_WHATSAPP = "(16) 99742-4912";
+const RECEIPT_MESSAGE = "MENSAGEM AUTOMÁTICA GERADA PELO SISTEMA INTELIGENTE AXIS1 - Olá, tudo bem? Segue o recibo referente ao pagamento do serviço contratado com a AXIS 1. Qualquer dúvida, ficamos à disposição.";
+const RECEIPT_LEGAL_TEXT = "Declaramos para os devidos fins que recebemos o valor acima referente aos serviços descritos neste recibo.";
+
+const COMMERCIAL_STAGES = [
+  "Novo lead",
+  "Em contato",
+  "Diagnóstico feito",
+  "Proposta enviada",
+  "Aguardando resposta",
+  "Fechado",
+  "Perdido"
+];
+
+const FOLLOW_UP_MESSAGES = {
+  "Novo lead": "Olá, tudo bem? Vi seu interesse e queria entender melhor o momento da sua empresa para te orientar da forma mais estratégica.",
+  "Em contato": "Olá, tudo bem? Estou retomando nosso contato para avançarmos no diagnóstico e entender como a AXIS 1 pode apoiar sua empresa.",
+  "Diagnóstico feito": "Olá, tudo bem? Com base no nosso diagnóstico, organizei um caminho estratégico para sua empresa. Posso te apresentar os próximos passos?",
+  "Proposta enviada": "Olá, tudo bem? Passando para saber se conseguiu avaliar a proposta e se ficou alguma dúvida sobre os próximos passos.",
+  "Aguardando resposta": "Oi, tudo bem? Estou retomando nosso contato para saber se ainda faz sentido avançarmos com a estratégia para sua empresa.",
+  "Fechado": "Olá, tudo bem? Está tudo encaminhado para iniciarmos sua estratégia com a AXIS 1. Se precisar de qualquer orientação, estou à disposição.",
+  "Perdido": "Olá, tudo bem? Caso o momento da sua empresa tenha mudado, podemos retomar a conversa e avaliar um novo caminho estratégico."
+};
+
+const HOT_FOLLOW_UP_MESSAGE = "Olá, tudo bem? Pelo que conversamos, acredito que já temos um bom caminho para iniciar sua estratégia. Posso te explicar o próximo passo?";
 
 const planValues = {
   "Essencial": 399.90,
@@ -29,6 +55,16 @@ const $ = (id) => document.getElementById(id);
 
 function uid(prefix = "axis") {
   return `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function stableHash(value) {
+  let hash = 2166136261;
+  const text = String(value || "");
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
 }
 
 function cloneData(value) {
@@ -88,6 +124,17 @@ function formatDateTime(value) {
   return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString("pt-BR");
 }
 
+function monthYear(dateStr) {
+  if (!dateStr) return "";
+  const date = new Date(`${dateStr}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return "";
+  const months = [
+    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+  ];
+  return `${months[date.getMonth()]}/${date.getFullYear()}`;
+}
+
 function daysBetween(dateStr) {
   if (!dateStr) return Number.NaN;
   const today = new Date(`${todayStr()}T12:00:00`);
@@ -126,6 +173,19 @@ function normalizeStatus(status) {
   if (normalized.includes("paus")) return "Pausado";
   if (normalized.includes("cancel")) return "Cancelado";
   return "Lead";
+}
+
+function normalizeTemperature(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "frio") return "Frio";
+  if (normalized === "quente") return "Quente";
+  return "Morno";
+}
+
+function normalizeCommercialStage(value, status = "Lead") {
+  const found = COMMERCIAL_STAGES.find((stage) => stage.toLowerCase() === String(value || "").trim().toLowerCase());
+  if (found) return found;
+  return status === "Lead" ? "Novo lead" : "Fechado";
 }
 
 function validateCpf(value) {
@@ -175,38 +235,151 @@ function formatDoc(value) {
   return digits;
 }
 
+function normalizeTimelineItem(item = {}, prefix = "event", fallbackDescription = "") {
+  const createdAt = item.createdAt || item.date || item.data || new Date().toISOString();
+  const type = String(item.type || item.action || item.acao || "Registro");
+  const description = String(item.description || item.descricao || fallbackDescription || type);
+  return {
+    id: String(item.id || `${prefix}-${stableHash(`${createdAt}|${type}|${description}`)}`),
+    createdAt,
+    type,
+    description
+  };
+}
+
+function normalizeReceiptData(data = {}) {
+  if (!data || typeof data !== "object") return null;
+  return {
+    receiptNumber: String(data.receiptNumber || data.number || ""),
+    generatedAt: data.generatedAt || data.createdAt || "",
+    clientName: String(data.clientName || ""),
+    company: String(data.company || ""),
+    documentNumber: normalizeDocument(data.documentNumber || ""),
+    service: String(data.service || ""),
+    amount: parseMoney(data.amount || 0),
+    paymentMethod: String(data.paymentMethod || "Não informado"),
+    paymentDate: data.paymentDate || "",
+    referencePeriod: String(data.referencePeriod || ""),
+    notes: String(data.notes || ""),
+    axisWhatsapp: String(data.axisWhatsapp || AXIS_WHATSAPP),
+    legalText: String(data.legalText || RECEIPT_LEGAL_TEXT)
+  };
+}
+
+function normalizePaymentItem(item = {}, recordId = "", index = 0) {
+  const paidAt = item.paidAt || item.data || item.date || todayStr();
+  const amount = parseMoney(item.amount ?? item.valor ?? item.value ?? 0);
+  const installment = String(item.installment || item.parcela || "Mensal");
+  const previousDueDate = item.previousDueDate || item.vencimentoAnterior || "";
+  const nextDueDate = item.nextDueDate || item.proximoVencimento || "";
+  const signature = `${recordId}|${paidAt}|${amount}|${installment}|${previousDueDate}|${index}`;
+  const receiptData = normalizeReceiptData(item.receiptData || item.dadosRecibo);
+  return {
+    id: String(item.id || item.paymentId || `payment-${stableHash(signature)}`),
+    paidAt,
+    amount,
+    installment,
+    previousDueDate,
+    nextDueDate,
+    paymentMethod: String(item.paymentMethod || item.formaPagamentoRecebida || item.metodo || "Não informado"),
+    referencePeriod: String(item.referencePeriod || item.periodoReferencia || monthYear(previousDueDate || paidAt)),
+    notes: String(item.notes || item.observacoes || ""),
+    receiptNumber: String(item.receiptNumber || item.numeroRecibo || receiptData?.receiptNumber || ""),
+    receiptGeneratedAt: item.receiptGeneratedAt || item.dataGeracaoRecibo || receiptData?.generatedAt || "",
+    receiptData
+  };
+}
+
+function normalizeReceipt(item = {}) {
+  const data = normalizeReceiptData(item.data || item.receiptData || item);
+  const receiptNumber = String(item.receiptNumber || item.number || data?.receiptNumber || "");
+  return {
+    id: String(item.id || `receipt-${stableHash(receiptNumber || `${item.paymentId}|${item.generatedAt}`)}`),
+    receiptNumber,
+    paymentId: String(item.paymentId || ""),
+    generatedAt: item.generatedAt || data?.generatedAt || "",
+    data
+  };
+}
+
+function uniqueTimeline(items = [], prefix) {
+  const seen = new Set();
+  return items
+    .filter((item) => item && typeof item === "object")
+    .map((item) => normalizeTimelineItem(item, prefix))
+    .filter((item) => {
+      const signature = item.id || `${item.createdAt}|${item.type}|${item.description}`;
+      if (seen.has(signature)) return false;
+      seen.add(signature);
+      return true;
+    })
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+function uniqueReceipts(items = []) {
+  const byNumber = new Map();
+  items.filter(Boolean).map(normalizeReceipt).forEach((receipt) => {
+    const key = receipt.receiptNumber || receipt.id;
+    if (!byNumber.has(key)) byNumber.set(key, receipt);
+  });
+  return [...byNumber.values()];
+}
+
 function normalizeRecord(record = {}) {
+  const recordId = String(record.id || uid());
+  const status = normalizeStatus(record.status || record.situacao || record.tipo);
   const paymentType = record.paymentType || record.tipoPagamento || record.formaPagamento || record.forma_pagamento || "1x";
   const value = parseMoney(record.value ?? record.valor ?? record.valorMensal ?? record.valor_mensal ?? record.investimento ?? 0);
   const history = Array.isArray(record.paymentHistory)
     ? record.paymentHistory
     : (Array.isArray(record.historicoPagamentos) ? record.historicoPagamentos : []);
+  const paymentHistory = history
+    .filter((item) => item && typeof item === "object")
+    .map((item, index) => normalizePaymentItem(item, recordId, index));
+  const commercialHistory = uniqueTimeline(
+    record.commercialHistory || record.historicoComercial || [],
+    "commercial"
+  );
+  const financialHistory = uniqueTimeline(
+    record.financialHistory || record.historicoFinanceiro || [],
+    "financial"
+  );
+  const derivedReceipts = paymentHistory
+    .filter((item) => item.receiptNumber)
+    .map((item) => ({
+      receiptNumber: item.receiptNumber,
+      paymentId: item.id,
+      generatedAt: item.receiptGeneratedAt,
+      data: item.receiptData
+    }));
 
   return {
-    id: String(record.id || uid()),
-    name: String(record.name || record.nome || record.cliente || record.razaoSocial || record.razao_social || record.razao || record.empresa || "").trim(),
+    id: recordId,
+    name: String(record.name || record.nome || record.cliente || record.contatoNome || record.razaoSocial || record.razao_social || record.empresa || "").trim(),
+    company: String(record.company || record.empresa || record.nomeEmpresa || "").trim(),
     documentNumber: normalizeDocument(record.documentNumber || record.cnpj || record.cpf || record.cpfCnpj || record.cpf_cnpj || record.documento || ""),
     phone: normalizePhone(record.phone || record.telefone || record.whatsapp || record.celular || record.contato || ""),
     email: normalizeEmail(record.email || record.e_mail || record.mail || ""),
     plan: String(record.plan || record.plano || record.planoContratado || record.plano_contratado || record.servico || "").trim(),
     value,
-    status: normalizeStatus(record.status || record.situacao || record.tipo),
+    status,
     paymentType: String(paymentType).includes("2") ? "2x" : "1x",
     firstContactDate: record.firstContactDate || record.primeiroContato || record.primeiro_contato || record.dataPrimeiroContato || record.data_primeiro_contato || record.contactDate || "",
     startDate: record.startDate || record.dataInicio || record.data_inicio || record.inicio || "",
     dueDate: record.dueDate || record.vencimento || record.proximoVencimento || record.proximo_vencimento || record.dataVencimento || "",
     dueDate2: record.dueDate2 || record.vencimento2 || record.segundoVencimento || record.segundo_vencimento || "",
     notes: String(record.notes || record.observacoes || record.obs || record.anotacoes || "").trim(),
+    leadSource: String(record.leadSource || record.origemLead || record.origem || "").trim(),
+    leadTemperature: normalizeTemperature(record.leadTemperature || record.temperaturaLead || record.temperatura),
+    commercialStage: normalizeCommercialStage(record.commercialStage || record.etapaComercial || record.etapa, status),
+    nextAction: String(record.nextAction || record.proximaAcao || "").trim(),
+    nextContactDate: record.nextContactDate || record.dataProximoContato || "",
+    lossReason: String(record.lossReason || record.motivoPerda || "").trim(),
+    commercialHistory,
     lastPaidDate: record.lastPaidDate || record.ultimoPagamento || record.ultimo_pagamento || null,
-    paymentHistory: history
-      .filter((item) => item && typeof item === "object")
-      .map((item) => ({
-        paidAt: item.paidAt || item.data || item.date || todayStr(),
-        amount: parseMoney(item.amount ?? item.valor ?? item.value ?? 0),
-        installment: String(item.installment || item.parcela || "Mensal"),
-        previousDueDate: item.previousDueDate || item.vencimentoAnterior || "",
-        nextDueDate: item.nextDueDate || item.proximoVencimento || ""
-      })),
+    paymentHistory,
+    receipts: uniqueReceipts([...(record.receipts || record.recibos || []), ...derivedReceipts]),
+    financialHistory,
     deletedAt: record.deletedAt || record.excluidoEm || null
   };
 }
@@ -235,7 +408,7 @@ function findInitialData() {
       if (Array.isArray(extracted) && extracted.length) return migrateArray(extracted);
       if (key === STORAGE_KEY && Array.isArray(extracted)) return [];
     } catch {
-      // Ignora uma chave antiga corrompida e tenta a próxima.
+      // Tenta a próxima chave legada.
     }
   }
   return [];
@@ -253,6 +426,15 @@ function readGoal() {
   return parseMoney(localStorage.getItem(GOAL_KEY) || 0);
 }
 
+function readReceiptCounters() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(RECEIPT_COUNTER_KEY) || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function normalizeSnapshot(snapshot = {}) {
   const source = snapshot.data && typeof snapshot.data === "object"
     ? snapshot.data
@@ -266,7 +448,10 @@ function normalizeSnapshot(snapshot = {}) {
     data: {
       records: migrateArray(source.records || source.clientes || []),
       trash: migrateArray(source.trash || source.lixeira || []),
-      monthlyGoal: parseMoney(source.monthlyGoal ?? source.metaMensal ?? 0)
+      monthlyGoal: parseMoney(source.monthlyGoal ?? source.metaMensal ?? 0),
+      receiptCounters: source.receiptCounters && typeof source.receiptCounters === "object"
+        ? source.receiptCounters
+        : {}
     }
   };
 }
@@ -290,10 +475,11 @@ function setSnapshots(snapshots) {
 let records = findInitialData();
 let trash = loadTrash();
 let monthlyGoal = readGoal();
+let receiptCounters = readReceiptCounters();
 let pendingImport = null;
 
 function captureState() {
-  return cloneData({ records, trash, monthlyGoal });
+  return cloneData({ records, trash, monthlyGoal, receiptCounters });
 }
 
 function buildSnapshot(reason, state = captureState()) {
@@ -316,6 +502,7 @@ function persistData() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
   localStorage.setItem(TRASH_KEY, JSON.stringify(trash));
   localStorage.setItem(GOAL_KEY, String(monthlyGoal || 0));
+  localStorage.setItem(RECEIPT_COUNTER_KEY, JSON.stringify(receiptCounters));
 }
 
 function applyImportantChange(reason, mutate) {
@@ -333,6 +520,26 @@ function toast(message) {
   toast.timer = window.setTimeout(() => element.classList.remove("show"), 4200);
 }
 
+function addCommercialHistory(record, type, description) {
+  record.commercialHistory = record.commercialHistory || [];
+  record.commercialHistory.unshift(normalizeTimelineItem({
+    id: uid("commercial"),
+    createdAt: new Date().toISOString(),
+    type,
+    description
+  }, "commercial"));
+}
+
+function addFinancialHistory(record, type, description) {
+  record.financialHistory = record.financialHistory || [];
+  record.financialHistory.unshift(normalizeTimelineItem({
+    id: uid("financial"),
+    createdAt: new Date().toISOString(),
+    type,
+    description
+  }, "financial"));
+}
+
 function recordFromForm() {
   const selectedPlan = $("plan").value;
   let value = parseMoney($("value").value);
@@ -342,6 +549,7 @@ function recordFromForm() {
   return normalizeRecord({
     id: $("recordId").value || uid(),
     name: $("name").value,
+    company: $("company").value,
     documentNumber: $("documentNumber").value,
     phone: $("phone").value,
     email: $("email").value,
@@ -354,8 +562,17 @@ function recordFromForm() {
     dueDate: $("dueDate").value,
     dueDate2: $("dueDate2").value,
     notes: $("notes").value,
+    leadSource: $("leadSource").value,
+    leadTemperature: $("leadTemperature").value,
+    commercialStage: $("commercialStage").value,
+    nextAction: $("nextAction").value,
+    nextContactDate: $("nextContactDate").value,
+    lossReason: $("lossReason").value,
+    commercialHistory: existing?.commercialHistory || [],
     lastPaidDate: existing?.lastPaidDate || null,
-    paymentHistory: existing?.paymentHistory || []
+    paymentHistory: existing?.paymentHistory || [],
+    receipts: existing?.receipts || [],
+    financialHistory: existing?.financialHistory || []
   });
 }
 
@@ -377,7 +594,7 @@ function duplicateMatch(record, collection = records, excludeId = "") {
 }
 
 function validateRecord(record) {
-  if (!record.name) return "Informe o nome/razão social.";
+  if (!record.name) return "Informe o nome do contato.";
 
   if (record.documentNumber) {
     if (record.documentNumber.length === 11 && !validateCpf(record.documentNumber)) {
@@ -397,15 +614,14 @@ function validateRecord(record) {
   if (record.email && !validateEmail(record.email)) {
     return "Informe um e-mail válido.";
   }
-  if (!record.plan) return "Selecione um plano.";
-  if (record.status === "Lead" && !record.firstContactDate) {
-    return "Para lead, informe a data do primeiro contato.";
+  if (!["Lead", "Ativo", "Pausado", "Cancelado"].includes(record.status)) {
+    return "Selecione o tipo de cadastro.";
   }
-  if (record.status === "Ativo" && !record.dueDate) {
-    return "Para cliente ativo, informe o vencimento mensal ou parcela 1.";
+  if (!COMMERCIAL_STAGES.includes(record.commercialStage)) {
+    return "Selecione a etapa comercial.";
   }
-  if (record.status === "Ativo" && record.paymentType === "2x" && !record.dueDate2) {
-    return "Para pagamento 2x, informe o vencimento da parcela 2.";
+  if (record.commercialStage === "Perdido" && !record.lossReason) {
+    return "Informe o motivo da perda.";
   }
 
   const duplicate = duplicateMatch(record, records, record.id);
@@ -415,11 +631,47 @@ function validateRecord(record) {
   return "";
 }
 
+function commercialChanges(existing, updated) {
+  const labels = {
+    leadSource: "origem",
+    leadTemperature: "temperatura",
+    commercialStage: "etapa comercial",
+    nextAction: "próxima ação",
+    nextContactDate: "data do próximo contato",
+    lossReason: "motivo de perda"
+  };
+  return Object.keys(labels)
+    .filter((field) => String(existing[field] || "") !== String(updated[field] || ""))
+    .map((field) => labels[field]);
+}
+
 function upsertRecord(record) {
   const index = records.findIndex((item) => item.id === record.id);
-  const reason = index >= 0
+  const existing = index >= 0 ? records[index] : null;
+  const reason = existing
     ? `Antes de editar o cadastro de ${record.name}`
     : `Antes de cadastrar ${record.name}`;
+
+  if (existing) {
+    const changes = commercialChanges(existing, record);
+    if (existing.commercialStage !== record.commercialStage) {
+      addCommercialHistory(
+        record,
+        "Mudança de etapa",
+        `Etapa alterada de ${existing.commercialStage} para ${record.commercialStage}.`
+      );
+    }
+    const otherChanges = changes.filter((label) => label !== "etapa comercial");
+    if (otherChanges.length) {
+      addCommercialHistory(
+        record,
+        "Edição comercial",
+        `Campos atualizados: ${otherChanges.join(", ")}.`
+      );
+    }
+  } else {
+    addCommercialHistory(record, "Cadastro criado", `Cadastro incluído na etapa ${record.commercialStage}.`);
+  }
 
   applyImportantChange(reason, () => {
     if (index >= 0) records[index] = record;
@@ -434,7 +686,10 @@ function clearForm() {
   $("recordId").value = "";
   $("status").value = "Lead";
   $("paymentType").value = "1x";
+  $("leadTemperature").value = "Morno";
+  $("commercialStage").value = "Novo lead";
   $("dueDate2Wrap").classList.add("hidden");
+  $("lossReasonWrap").classList.add("hidden");
   $("formTitle").textContent = "Cadastrar lead/cliente";
 }
 
@@ -442,6 +697,7 @@ function fillForm(record) {
   setActiveTab("records");
   $("recordId").value = record.id;
   $("name").value = record.name || "";
+  $("company").value = record.company || "";
   $("documentNumber").value = formatDoc(record.documentNumber || "");
   $("phone").value = record.phone || "";
   $("email").value = record.email || "";
@@ -454,7 +710,14 @@ function fillForm(record) {
   $("dueDate").value = record.dueDate || "";
   $("dueDate2").value = record.dueDate2 || "";
   $("notes").value = record.notes || "";
+  $("leadSource").value = record.leadSource || "";
+  $("leadTemperature").value = record.leadTemperature || "Morno";
+  $("commercialStage").value = record.commercialStage || "Novo lead";
+  $("nextAction").value = record.nextAction || "";
+  $("nextContactDate").value = record.nextContactDate || "";
+  $("lossReason").value = record.lossReason || "";
   toggleDue2();
+  toggleLossReason();
   $("formTitle").textContent = "Editar cadastro";
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -506,54 +769,134 @@ function markAsClient(id) {
   if (!record) return;
 
   applyImportantChange(`Antes de converter ${record.name} em cliente`, () => {
+    const previousStage = record.commercialStage;
     record.status = "Ativo";
+    record.commercialStage = "Fechado";
     record.startDate = record.startDate || todayStr();
     record.dueDate = record.dueDate || addOneMonth(todayStr());
+    record.lossReason = "";
+    addCommercialHistory(
+      record,
+      "Lead convertido em cliente",
+      `Lead convertido em cliente ativo; etapa alterada de ${previousStage} para Fechado.`
+    );
   });
   toast("Lead convertido em cliente ativo.");
 }
 
-function registerPayment(id, installment) {
+function moveCommercialStage(id, direction) {
   const record = records.find((item) => item.id === id);
   if (!record) return;
+  const currentIndex = COMMERCIAL_STAGES.indexOf(record.commercialStage);
+  const targetIndex = currentIndex + direction;
+  if (targetIndex < 0 || targetIndex >= COMMERCIAL_STAGES.length) return;
+  const nextStage = COMMERCIAL_STAGES[targetIndex];
+  if (nextStage === "Perdido") {
+    openLossDialog(id);
+    return;
+  }
 
-  const amount = record.paymentType === "2x"
-    ? (installment === 1
-      ? Math.round((record.value * 0.60) * 100) / 100
-      : Math.round((record.value * 0.40) * 100) / 100)
-    : record.value;
-  const previousDueDate = installment === 2 ? record.dueDate2 : record.dueDate;
-
-  applyImportantChange(`Antes de registrar pagamento de ${record.name}`, () => {
-    record.lastPaidDate = todayStr();
-    record.paymentHistory = record.paymentHistory || [];
-    record.paymentHistory.unshift({
-      paidAt: todayStr(),
-      amount,
-      installment: record.paymentType === "2x" ? `${installment}ª parcela` : "Mensal",
-      previousDueDate,
-      nextDueDate: installment === 2 || record.paymentType === "1x"
-        ? addOneMonth(previousDueDate || todayStr())
-        : record.dueDate2
-    });
-
-    if (record.paymentType === "1x") {
-      record.dueDate = addOneMonth(record.dueDate || todayStr());
-    } else if (installment === 2) {
-      record.dueDate = addOneMonth(record.dueDate || todayStr());
-      record.dueDate2 = addOneMonth(record.dueDate2 || todayStr());
-    }
+  applyImportantChange(`Antes de alterar a etapa de ${record.name}`, () => {
+    const previousStage = record.commercialStage;
+    record.commercialStage = nextStage;
+    if (nextStage !== "Perdido") record.lossReason = "";
+    addCommercialHistory(
+      record,
+      "Mudança de etapa",
+      `Etapa alterada de ${previousStage} para ${nextStage}.`
+    );
   });
+  toast(`Etapa alterada para ${nextStage}.`);
+}
 
-  toast(
-    record.paymentType === "2x" && installment === 1
-      ? "1ª parcela registrada. A 2ª parcela continua pendente."
-      : "Pagamento registrado."
-  );
+function openLossDialog(id) {
+  const record = records.find((item) => item.id === id);
+  if (!record) return;
+  $("lossForm").reset();
+  $("lossRecordId").value = id;
+  $("lossReasonOtherWrap").classList.add("hidden");
+  $("lossDialog").showModal();
+}
+
+function markAsLost(id, reason) {
+  const record = records.find((item) => item.id === id);
+  if (!record) return;
+  applyImportantChange(`Antes de marcar ${record.name} como perdido`, () => {
+    const previousStage = record.commercialStage;
+    record.commercialStage = "Perdido";
+    record.lossReason = reason;
+    addCommercialHistory(
+      record,
+      "Lead marcado como perdido",
+      `Etapa alterada de ${previousStage} para Perdido. Motivo: ${reason}.`
+    );
+  });
+  if ($("lossDialog").open) $("lossDialog").close();
+  toast("Lead marcado como perdido.");
+}
+
+function followUpMessage(record) {
+  if (record.leadTemperature === "Quente" && !["Fechado", "Perdido"].includes(record.commercialStage)) {
+    return HOT_FOLLOW_UP_MESSAGE;
+  }
+  return FOLLOW_UP_MESSAGES[record.commercialStage] || FOLLOW_UP_MESSAGES["Novo lead"];
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand("copy");
+    textarea.remove();
+    return copied;
+  }
+}
+
+async function copyFollowUp(id) {
+  const record = records.find((item) => item.id === id);
+  if (!record) return;
+  const copied = await copyText(followUpMessage(record));
+  if (!copied) {
+    toast("Não foi possível copiar a mensagem.");
+    return;
+  }
+  applyImportantChange(`Antes de registrar follow-up de ${record.name}`, () => {
+    addCommercialHistory(
+      record,
+      "Follow-up copiado",
+      `Mensagem de follow-up da etapa ${record.commercialStage} copiada.`
+    );
+  });
+  toast("Mensagem de follow-up copiada.");
 }
 
 function whatsappUrl(phone, message) {
   return `https://wa.me/55${normalizePhone(phone)}?text=${encodeURIComponent(message)}`;
+}
+
+function openPipelineWhatsApp(id) {
+  const record = records.find((item) => item.id === id);
+  if (!record) return;
+  window.open(whatsappUrl(record.phone, followUpMessage(record)), "_blank", "noopener");
+  applyImportantChange(`Antes de registrar abertura do WhatsApp de ${record.name}`, () => {
+    addCommercialHistory(
+      record,
+      "WhatsApp aberto",
+      `WhatsApp aberto com mensagem da etapa ${record.commercialStage}.`
+    );
+  });
+}
+
+function openFollowUp(id) {
+  openPipelineWhatsApp(id);
 }
 
 function openCharge(id, installment = 1) {
@@ -565,21 +908,73 @@ function openCharge(id, installment = 1) {
   const message = difference < 0
     ? `Olá, tudo bem? Passando para lembrar que o pagamento${installmentText} referente aos serviços da AXIS 1 venceu em ${formatDate(due)}. Pode me confirmar, por gentileza, a previsão de regularização?`
     : `Olá, tudo bem? Passando para lembrar que o pagamento${installmentText} referente aos serviços da AXIS 1 vence em ${formatDate(due)}. Qualquer dúvida estou à disposição.`;
-  window.open(whatsappUrl(record.phone, message), "_blank");
+  window.open(whatsappUrl(record.phone, message), "_blank", "noopener");
 }
 
-function openFollowUp(id) {
+function defaultPaymentAmount(record, installment) {
+  if (record.paymentType !== "2x") return record.value;
+  return installment === 1
+    ? Math.round((record.value * 0.60) * 100) / 100
+    : Math.round((record.value * 0.40) * 100) / 100;
+}
+
+function openPaymentDialog(id, installment = 1) {
   const record = records.find((item) => item.id === id);
   if (!record) return;
-  const day = Math.max(1, daysBetween(record.firstContactDate) * -1);
-  const messages = {
-    1: `Olá, ${record.name}! Conseguiu dar uma olhada na proposta da AXIS 1? Se fizer sentido, posso te orientar no melhor caminho para começar.`,
-    3: `Olá, ${record.name}! Passando só para reforçar: a proposta da AXIS 1 foi pensada para posicionar melhor sua marca e atrair mais clientes com estratégia.`,
-    5: `Olá, ${record.name}! Estou organizando a agenda da semana. Se quiser avançar com a proposta, consigo deixar tudo encaminhado para você.`,
-    7: `Olá, ${record.name}! Vou encerrar seu atendimento por aqui para não ficar te incomodando. Se quiser retomar depois, é só me chamar.`
-  };
-  const targetDay = [7, 5, 3, 1].find((value) => day >= value) || 1;
-  window.open(whatsappUrl(record.phone, messages[targetDay]), "_blank");
+  const due = installment === 2 ? record.dueDate2 : record.dueDate;
+  $("paymentForm").reset();
+  $("paymentRecordId").value = id;
+  $("paymentInstallment").value = installment;
+  $("paymentAmount").value = String(defaultPaymentAmount(record, installment) || 0).replace(".", ",");
+  $("paymentMethod").value = "Pix";
+  $("paymentDate").value = todayStr();
+  $("paymentReference").value = monthYear(due || todayStr());
+  $("paymentDialog").showModal();
+}
+
+function registerPayment(id, installment, details) {
+  const record = records.find((item) => item.id === id);
+  if (!record) return;
+  const previousDueDate = installment === 2 ? record.dueDate2 : record.dueDate;
+  const payment = normalizePaymentItem({
+    id: uid("payment"),
+    paidAt: details.paidAt,
+    amount: details.amount,
+    installment: record.paymentType === "2x" ? `${installment}ª parcela` : "Mensal",
+    previousDueDate,
+    nextDueDate: installment === 2 || record.paymentType === "1x"
+      ? addOneMonth(previousDueDate || details.paidAt)
+      : record.dueDate2,
+    paymentMethod: details.paymentMethod,
+    referencePeriod: details.referencePeriod,
+    notes: details.notes
+  }, record.id);
+
+  applyImportantChange(`Antes de registrar pagamento de ${record.name}`, () => {
+    record.lastPaidDate = details.paidAt;
+    record.paymentHistory = record.paymentHistory || [];
+    record.paymentHistory.unshift(payment);
+    addFinancialHistory(
+      record,
+      "Pagamento registrado",
+      `${payment.installment} de ${formatMoney(payment.amount)} recebida via ${payment.paymentMethod}, referência ${payment.referencePeriod}.`
+    );
+
+    if (record.paymentType === "1x") {
+      record.dueDate = addOneMonth(record.dueDate || details.paidAt);
+    } else if (installment === 2) {
+      record.dueDate = addOneMonth(record.dueDate || details.paidAt);
+      record.dueDate2 = addOneMonth(record.dueDate2 || details.paidAt);
+    }
+  });
+
+  if ($("paymentDialog").open) $("paymentDialog").close();
+  toast(
+    record.paymentType === "2x" && installment === 1
+      ? "1ª parcela registrada. A 2ª parcela continua pendente."
+      : "Pagamento registrado. O recibo já pode ser gerado."
+  );
+  showHistory(id);
 }
 
 function paymentMonthTotal() {
@@ -603,6 +998,230 @@ function isPaymentRegisteredThisCycle(record, installment) {
   ));
 }
 
+function scanReceiptMax(year) {
+  const pattern = new RegExp(`^AXIS1-REC-${year}-(\\d{4,})$`);
+  let max = Number(receiptCounters[year]) || 0;
+  [...records, ...trash].forEach((record) => {
+    [
+      ...(record.receipts || []).map((receipt) => receipt.receiptNumber),
+      ...(record.paymentHistory || []).map((payment) => payment.receiptNumber)
+    ].filter(Boolean).forEach((number) => {
+      const match = String(number).match(pattern);
+      if (match) max = Math.max(max, Number(match[1]) || 0);
+    });
+  });
+  return max;
+}
+
+function nextReceiptNumber(dateStr = todayStr()) {
+  const year = String(dateStr || todayStr()).slice(0, 4);
+  const next = scanReceiptMax(year) + 1;
+  receiptCounters[year] = next;
+  return `AXIS1-REC-${year}-${String(next).padStart(4, "0")}`;
+}
+
+function buildReceiptData(record, payment, receiptNumber, generatedAt) {
+  return normalizeReceiptData({
+    receiptNumber,
+    generatedAt,
+    clientName: record.name,
+    company: record.company,
+    documentNumber: record.documentNumber,
+    service: record.plan || "Serviços AXIS 1",
+    amount: payment.amount,
+    paymentMethod: payment.paymentMethod || "Não informado",
+    paymentDate: payment.paidAt,
+    referencePeriod: payment.referencePeriod || monthYear(payment.previousDueDate || payment.paidAt),
+    notes: payment.notes || record.notes || "",
+    axisWhatsapp: AXIS_WHATSAPP,
+    legalText: RECEIPT_LEGAL_TEXT
+  });
+}
+
+function findPayment(recordId, paymentId) {
+  const record = records.find((item) => item.id === recordId);
+  const payment = record?.paymentHistory?.find((item) => item.id === paymentId);
+  return { record, payment };
+}
+
+function ensureReceipt(record, payment) {
+  if (payment.receiptNumber && payment.receiptData) {
+    return payment.receiptData;
+  }
+  const generatedAt = new Date().toISOString();
+  const receiptNumber = payment.receiptNumber || nextReceiptNumber(payment.paidAt);
+  const data = buildReceiptData(record, payment, receiptNumber, generatedAt);
+  payment.receiptNumber = receiptNumber;
+  payment.receiptGeneratedAt = payment.receiptGeneratedAt || generatedAt;
+  payment.receiptData = data;
+  record.receipts = uniqueReceipts([
+    ...(record.receipts || []),
+    {
+      receiptNumber,
+      paymentId: payment.id,
+      generatedAt: payment.receiptGeneratedAt,
+      data
+    }
+  ]);
+  return data;
+}
+
+function pdfLatin1(value) {
+  return String(value ?? "")
+    .replace(/[–—]/g, "-")
+    .replace(/[“”]/g, "\"")
+    .replace(/[‘’]/g, "'")
+    .replace(/[^\x20-\xFF]/g, "?");
+}
+
+function pdfEscape(value) {
+  return pdfLatin1(value).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+}
+
+function encodeLatin1(value) {
+  const text = String(value);
+  const bytes = new Uint8Array(text.length);
+  for (let index = 0; index < text.length; index += 1) {
+    bytes[index] = text.charCodeAt(index) & 0xFF;
+  }
+  return bytes;
+}
+
+function wrapText(value, maxChars = 82) {
+  const words = pdfLatin1(value).split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = "";
+  words.forEach((word) => {
+    const candidate = line ? `${line} ${word}` : word;
+    if (candidate.length > maxChars && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = candidate;
+    }
+  });
+  if (line) lines.push(line);
+  return lines.length ? lines : [""];
+}
+
+function createReceiptPdf(data) {
+  const commands = [];
+  const rect = (x, y, width, height, fill) => {
+    commands.push(`${fill} rg ${x} ${y} ${width} ${height} re f`);
+  };
+  const line = (x1, y1, x2, y2, color = "0.95 0.42 0") => {
+    commands.push(`${color} RG 1.5 w ${x1} ${y1} m ${x2} ${y2} l S`);
+  };
+  const text = (value, x, y, size = 10, font = "F1", color = "0.12 0.13 0.16") => {
+    commands.push(`BT /${font} ${size} Tf ${color} rg 1 0 0 1 ${x} ${y} Tm (${pdfEscape(value)}) Tj ET`);
+  };
+  const labelValue = (label, value, y) => {
+    text(label.toUpperCase(), 58, y, 8, "F2", "0.42 0.44 0.49");
+    text(value || "-", 58, y - 17, 11, "F1", "0.10 0.11 0.14");
+  };
+
+  rect(0, 0, 595, 842, "0.97 0.97 0.96");
+  rect(0, 680, 595, 162, "0.045 0.05 0.065");
+  rect(0, 680, 12, 162, "1 0.42 0");
+  text("AXIS 1", 52, 784, 15, "F2", "1 0.42 0");
+  text("RECIBO DE PAGAMENTO", 52, 742, 25, "F2", "1 1 1");
+  text(data.receiptNumber, 52, 711, 11, "F1", "0.78 0.79 0.82");
+  text(`Emitido em ${formatDateTime(data.generatedAt)}`, 366, 711, 9, "F1", "0.78 0.79 0.82");
+
+  text("RECEBEMOS DE", 52, 640, 9, "F2", "1 0.42 0");
+  text(data.clientName || "-", 52, 612, 18, "F2");
+  if (data.company) text(data.company, 52, 592, 11, "F1", "0.32 0.34 0.38");
+  if (data.documentNumber) text(`CPF/CNPJ: ${formatDoc(data.documentNumber)}`, 52, 573, 10, "F1", "0.32 0.34 0.38");
+  line(52, 552, 543, 552, "0.84 0.84 0.82");
+
+  labelValue("Serviço ou plano", data.service, 524);
+  labelValue("Valor recebido", formatMoney(data.amount), 468);
+  labelValue("Forma de pagamento", data.paymentMethod, 412);
+  labelValue("Data do pagamento", formatDate(data.paymentDate), 356);
+  labelValue("Período de referência", data.referencePeriod, 300);
+
+  text("OBSERVAÇÕES", 310, 524, 8, "F2", "0.42 0.44 0.49");
+  wrapText(data.notes || "Sem observações.", 42).slice(0, 7).forEach((item, index) => {
+    text(item, 310, 507 - (index * 15), 10, "F1", "0.10 0.11 0.14");
+  });
+
+  rect(42, 122, 511, 98, "0.91 0.91 0.89");
+  text("DECLARAÇÃO", 58, 194, 9, "F2", "1 0.42 0");
+  wrapText(data.legalText, 78).slice(0, 3).forEach((item, index) => {
+    text(item, 58, 171 - (index * 16), 10, "F1", "0.18 0.19 0.22");
+  });
+  text(`Contato AXIS 1: WhatsApp ${data.axisWhatsapp || AXIS_WHATSAPP}`, 58, 82, 10, "F2", "0.10 0.11 0.14");
+  text("Documento gerado pelo CRM AXIS 1. Não substitui comprovante bancário.", 58, 58, 8, "F1", "0.45 0.46 0.49");
+
+  const stream = commands.join("\n");
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> /Contents 4 0 R >>",
+    `<< /Length ${encodeLatin1(stream).length} >>\nstream\n${stream}\nendstream`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>"
+  ];
+
+  let output = "%PDF-1.4\n%âãÏÓ\n";
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(encodeLatin1(output).length);
+    output += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = encodeLatin1(output).length;
+  output += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => {
+    output += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  });
+  output += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return new Blob([encodeLatin1(output)], { type: "application/pdf" });
+}
+
+function downloadReceiptBlob(data) {
+  const blob = createReceiptPdf(data);
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `${data.receiptNumber || "recibo-axis1"}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+
+function generateReceipt(recordId, paymentId) {
+  const { record, payment } = findPayment(recordId, paymentId);
+  if (!record || !payment) return;
+  let receiptData;
+  applyImportantChange(`Antes de gerar recibo para ${record.name}`, () => {
+    receiptData = ensureReceipt(record, payment);
+    addFinancialHistory(
+      record,
+      "Recibo gerado",
+      `${receiptData.receiptNumber} • ${formatMoney(payment.amount)} • ${payment.paymentMethod} • ${payment.referencePeriod}.`
+    );
+  });
+  downloadReceiptBlob(receiptData);
+  showHistory(recordId);
+  toast(`Recibo ${receiptData.receiptNumber} gerado em PDF.`);
+}
+
+function downloadExistingReceipt(recordId, paymentId) {
+  const { record, payment } = findPayment(recordId, paymentId);
+  if (!record || !payment) return;
+  if (!payment.receiptData) {
+    generateReceipt(recordId, paymentId);
+    return;
+  }
+  downloadReceiptBlob(payment.receiptData);
+  toast(`Recibo ${payment.receiptNumber} baixado.`);
+}
+
+async function copyReceiptMessage() {
+  const copied = await copyText(RECEIPT_MESSAGE);
+  toast(copied ? "Mensagem do recibo copiada." : "Não foi possível copiar a mensagem.");
+}
+
 function backupPayload() {
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -610,7 +1229,8 @@ function backupPayload() {
     records: cloneData(records),
     trash: cloneData(trash),
     monthlyGoal,
-    snapshots: cloneData(getSnapshots())
+    snapshots: cloneData(getSnapshots()),
+    receiptCounters: cloneData(receiptCounters)
   };
 }
 
@@ -618,7 +1238,7 @@ function exportBackup() {
   const blob = new Blob([JSON.stringify(backupPayload(), null, 2)], { type: "application/json" });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
-  link.download = `backup-crm-axis1-v3-${todayStr()}.json`;
+  link.download = `backup-crm-axis1-v3-etapa-2-${todayStr()}.json`;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -643,7 +1263,10 @@ function parseBackup(data) {
     monthlyGoal: parseMoney(metadata.monthlyGoal ?? metadata.metaMensal ?? 0),
     snapshots: Array.isArray(metadata.snapshots)
       ? metadata.snapshots.map(normalizeSnapshot).slice(0, MAX_SNAPSHOTS)
-      : []
+      : [],
+    receiptCounters: metadata.receiptCounters && typeof metadata.receiptCounters === "object"
+      ? metadata.receiptCounters
+      : {}
   };
 }
 
@@ -674,28 +1297,51 @@ function prepareImport(file) {
 }
 
 function mergePaymentHistory(current = [], incoming = []) {
-  const merged = [];
-  const seen = new Set();
-  [...current, ...incoming].forEach((item) => {
-    const key = [
-      item.paidAt,
-      Number(item.amount) || 0,
-      item.installment,
-      item.previousDueDate,
-      item.nextDueDate
-    ].join("|");
-    if (seen.has(key)) return;
-    seen.add(key);
-    merged.push(item);
+  const merged = current.map((item) => cloneData(item));
+  incoming.forEach((incomingItem) => {
+    const duplicateIndex = merged.findIndex((item) => (
+      item.id === incomingItem.id
+      || (
+        item.paidAt === incomingItem.paidAt
+        && Number(item.amount) === Number(incomingItem.amount)
+        && item.installment === incomingItem.installment
+        && item.previousDueDate === incomingItem.previousDueDate
+      )
+      || (item.receiptNumber && item.receiptNumber === incomingItem.receiptNumber)
+    ));
+    if (duplicateIndex < 0) {
+      merged.push(incomingItem);
+      return;
+    }
+    const currentItem = merged[duplicateIndex];
+    merged[duplicateIndex] = {
+      ...incomingItem,
+      ...currentItem,
+      paymentMethod: currentItem.paymentMethod !== "Não informado"
+        ? currentItem.paymentMethod
+        : incomingItem.paymentMethod,
+      referencePeriod: currentItem.referencePeriod || incomingItem.referencePeriod,
+      notes: (currentItem.notes || "").length >= (incomingItem.notes || "").length
+        ? currentItem.notes
+        : incomingItem.notes,
+      receiptNumber: currentItem.receiptNumber || incomingItem.receiptNumber,
+      receiptGeneratedAt: currentItem.receiptGeneratedAt || incomingItem.receiptGeneratedAt,
+      receiptData: currentItem.receiptData || incomingItem.receiptData
+    };
   });
   return merged.sort((a, b) => String(b.paidAt).localeCompare(String(a.paidAt)));
+}
+
+function mergeTimelines(current = [], incoming = [], prefix) {
+  return uniqueTimeline([...current, ...incoming], prefix);
 }
 
 function mergeMostComplete(current, incoming) {
   const merged = { ...current, id: current.id };
   const textFields = [
-    "documentNumber", "phone", "email", "plan",
-    "firstContactDate", "startDate", "dueDate", "dueDate2", "notes"
+    "company", "documentNumber", "phone", "email", "plan",
+    "firstContactDate", "startDate", "dueDate", "dueDate2", "notes",
+    "leadSource", "nextAction", "nextContactDate", "lossReason"
   ];
 
   textFields.forEach((field) => {
@@ -704,6 +1350,15 @@ function mergeMostComplete(current, incoming) {
   if ((incoming.name || "").length > (merged.name || "").length) merged.name = incoming.name;
   if ((incoming.notes || "").length > (merged.notes || "").length) merged.notes = incoming.notes;
   if (!merged.value) merged.value = incoming.value || 0;
+  if (merged.leadTemperature === "Morno" && incoming.leadTemperature !== "Morno") {
+    merged.leadTemperature = incoming.leadTemperature;
+  }
+  if (
+    merged.commercialStage === normalizeCommercialStage("", merged.status)
+    && incoming.commercialStage !== normalizeCommercialStage("", incoming.status)
+  ) {
+    merged.commercialStage = incoming.commercialStage;
+  }
   if (
     merged.paymentType === "1x"
     && incoming.paymentType === "2x"
@@ -723,6 +1378,9 @@ function mergeMostComplete(current, incoming) {
   }
   merged.lastPaidDate = [current.lastPaidDate, incoming.lastPaidDate].filter(Boolean).sort().pop() || null;
   merged.paymentHistory = mergePaymentHistory(current.paymentHistory, incoming.paymentHistory);
+  merged.commercialHistory = mergeTimelines(current.commercialHistory, incoming.commercialHistory, "commercial");
+  merged.financialHistory = mergeTimelines(current.financialHistory, incoming.financialHistory, "financial");
+  merged.receipts = uniqueReceipts([...(current.receipts || []), ...(incoming.receipts || [])]);
   merged.deletedAt = current.deletedAt || incoming.deletedAt || null;
   return normalizeRecord(merged);
 }
@@ -796,6 +1454,14 @@ function combineSnapshots(...groups) {
     .slice(0, MAX_SNAPSHOTS);
 }
 
+function mergeReceiptCounters(current, incoming) {
+  const merged = { ...current };
+  Object.entries(incoming || {}).forEach(([year, value]) => {
+    merged[year] = Math.max(Number(merged[year]) || 0, Number(value) || 0);
+  });
+  return merged;
+}
+
 function closeImportDialog() {
   if ($("importDialog").open) $("importDialog").close();
   pendingImport = null;
@@ -819,12 +1485,14 @@ function performImport(mode) {
     records = cloneData(backup.records);
     trash = cloneData(backup.trash);
     monthlyGoal = backup.monthlyGoal;
+    receiptCounters = cloneData(backup.receiptCounters);
     stats.imported = records.length;
     setSnapshots(combineSnapshots(safetySnapshot, backup.snapshots));
   } else {
     records = mergeRecordCollections(records, backup.records, stats);
     trash = mergeTrashCollections(trash, backup.trash);
     if (!monthlyGoal && backup.monthlyGoal) monthlyGoal = backup.monthlyGoal;
+    receiptCounters = mergeReceiptCounters(receiptCounters, backup.receiptCounters);
     setSnapshots(combineSnapshots(currentSnapshots, backup.snapshots));
   }
 
@@ -848,6 +1516,7 @@ function restoreSnapshot(id) {
   records = migrateArray(target.data.records);
   trash = migrateArray(target.data.trash);
   monthlyGoal = parseMoney(target.data.monthlyGoal);
+  receiptCounters = cloneData(target.data.receiptCounters || {});
   persistData();
   loadGoal();
   render();
@@ -876,6 +1545,10 @@ function toggleDue2() {
   $("dueDate2Wrap").classList.toggle("hidden", $("paymentType").value !== "2x");
 }
 
+function toggleLossReason() {
+  $("lossReasonWrap").classList.toggle("hidden", $("commercialStage").value !== "Perdido");
+}
+
 function setActiveTab(tabName) {
   document.querySelectorAll("[data-tab]").forEach((button) => {
     const active = button.dataset.tab === tabName;
@@ -890,18 +1563,53 @@ function setActiveTab(tabName) {
 function getFilteredRecords() {
   const query = $("searchInput").value.trim().toLowerCase();
   const status = $("statusFilter").value;
+  const source = $("sourceFilter").value;
+  const temperature = $("temperatureFilter").value;
+  const stage = $("stageFilter").value;
+  const commercial = $("commercialFilter").value;
+
   return records.filter((record) => {
     const matchesStatus = status === "Todos" || record.status === status;
+    const matchesSource = source === "Todos" || record.leadSource === source;
+    const matchesTemperature = temperature === "Todos" || record.leadTemperature === temperature;
+    const matchesStage = stage === "Todos" || record.commercialStage === stage;
+    const nextContactDifference = daysBetween(record.nextContactDate);
+    const matchesCommercial = (
+      commercial === "Todos"
+      || (commercial === "Atrasados" && record.nextContactDate && nextContactDifference < 0)
+      || (commercial === "Propostas" && record.commercialStage === "Proposta enviada")
+      || (commercial === "Perdidos" && record.commercialStage === "Perdido")
+      || (commercial === "Fechados" && record.commercialStage === "Fechado")
+    );
     const text = [
       record.name,
+      record.company,
       record.documentNumber,
       record.plan,
       record.phone,
       record.email,
-      record.notes
+      record.notes,
+      record.leadSource,
+      record.commercialStage,
+      record.nextAction,
+      record.lossReason
     ].join(" ").toLowerCase();
-    return matchesStatus && text.includes(query);
+    return matchesStatus
+      && matchesSource
+      && matchesTemperature
+      && matchesStage
+      && matchesCommercial
+      && text.includes(query);
   });
+}
+
+function followUpState(dateStr) {
+  if (!dateStr) return null;
+  const difference = daysBetween(dateStr);
+  if (difference < 0) return { className: "overdue", label: "Atrasado" };
+  if (difference === 0) return { className: "today", label: "Hoje" };
+  if (difference <= 3) return { className: "soon", label: `Em ${difference} dia(s)` };
+  return null;
 }
 
 function buildAlerts() {
@@ -944,15 +1652,15 @@ function buildAlerts() {
       });
     }
 
-    if (record.status === "Lead" && record.firstContactDate) {
-      const day = daysBetween(record.firstContactDate) * -1;
-      if ([1, 3, 5, 7].includes(day)) {
+    if (!["Fechado", "Perdido"].includes(record.commercialStage) && record.nextContactDate) {
+      const state = followUpState(record.nextContactDate);
+      if (state && ["overdue", "today", "soon"].includes(state.className)) {
         alerts.push({
-          urgent: false,
-          type: `Follow-up dia ${day}`,
-          text: `${record.name} precisa de follow-up`,
-          action: () => openFollowUp(record.id),
-          label: "Follow-up"
+          urgent: state.className === "overdue",
+          type: `Follow-up ${state.label.toLowerCase()}`,
+          text: `${record.name} — ${record.nextAction || "retomar contato"}`,
+          action: () => setActiveTab("pipeline"),
+          label: "Ver pipeline"
         });
       }
     }
@@ -1010,11 +1718,100 @@ function renderMetrics() {
   $("overdueCount").textContent = overdue;
 }
 
+function renderPipelineSummary() {
+  const open = records.filter((record) => (
+    record.status === "Lead" && !["Fechado", "Perdido"].includes(record.commercialStage)
+  ));
+  $("pipelineOpenCount").textContent = open.length;
+  $("pipelineHotCount").textContent = open.filter((record) => record.leadTemperature === "Quente").length;
+  $("pipelineProposalCount").textContent = records.filter((record) => record.commercialStage === "Proposta enviada").length;
+  $("pipelineOverdueCount").textContent = open.filter((record) => (
+    record.nextContactDate && daysBetween(record.nextContactDate) < 0
+  )).length;
+  $("pipelineWonCount").textContent = records.filter((record) => record.commercialStage === "Fechado").length;
+  $("pipelineLostCount").textContent = records.filter((record) => record.commercialStage === "Perdido").length;
+}
+
+function renderPipeline() {
+  const board = $("pipelineBoard");
+  board.innerHTML = "";
+  COMMERCIAL_STAGES.forEach((stage) => {
+    const stageRecords = records
+      .filter((record) => record.commercialStage === stage)
+      .sort((a, b) => String(a.nextContactDate || "9999").localeCompare(String(b.nextContactDate || "9999")));
+    const column = document.createElement("section");
+    column.className = "pipeline-column";
+    column.innerHTML = `
+      <header class="pipeline-column-head">
+        <h3>${escapeHtml(stage)}</h3>
+        <span>${stageRecords.length}</span>
+      </header>
+      <div class="pipeline-column-body"></div>
+    `;
+    const body = column.querySelector(".pipeline-column-body");
+    if (!stageRecords.length) {
+      body.innerHTML = '<div class="pipeline-empty">Nenhuma oportunidade.</div>';
+    }
+
+    stageRecords.forEach((record) => {
+      const followState = followUpState(record.nextContactDate);
+      const card = document.createElement("article");
+      card.className = `pipeline-card temperature-${record.leadTemperature.toLowerCase()} ${followState ? `follow-${followState.className}` : ""}`;
+      const stageIndex = COMMERCIAL_STAGES.indexOf(record.commercialStage);
+      const estimated = record.value ? formatMoney(record.value) : (record.plan || "Sem valor estimado");
+      card.innerHTML = `
+        <div class="pipeline-card-head">
+          <span class="temperature-badge ${record.leadTemperature.toLowerCase()}">${escapeHtml(record.leadTemperature)}</span>
+          ${followState ? `<span class="follow-badge ${followState.className}">${escapeHtml(followState.label)}</span>` : ""}
+        </div>
+        <h4>${escapeHtml(record.name || "-")}</h4>
+        ${record.company ? `<p class="pipeline-company">${escapeHtml(record.company)}</p>` : ""}
+        <p class="pipeline-contact">${escapeHtml(record.phone || "-")}</p>
+        <dl class="pipeline-details">
+          <div><dt>Origem</dt><dd>${escapeHtml(record.leadSource || "Não informada")}</dd></div>
+          <div><dt>Próxima ação</dt><dd>${escapeHtml(record.nextAction || "Não definida")}</dd></div>
+          <div><dt>Próximo contato</dt><dd>${escapeHtml(formatDate(record.nextContactDate))}</dd></div>
+          <div><dt>Potencial</dt><dd>${escapeHtml(estimated)}</dd></div>
+          ${record.lossReason ? `<div><dt>Motivo</dt><dd>${escapeHtml(record.lossReason)}</dd></div>` : ""}
+        </dl>
+        <div class="pipeline-primary-actions">
+          ${stageIndex > 0 ? '<button class="icon-action" type="button" data-action="back" title="Voltar etapa">←</button>' : ""}
+          ${stageIndex < COMMERCIAL_STAGES.length - 2 ? '<button class="icon-action" type="button" data-action="advance" title="Avançar etapa">→</button>' : ""}
+          <button class="icon-action" type="button" data-action="edit" title="Editar cadastro">Editar</button>
+        </div>
+        <div class="pipeline-secondary-actions">
+          <button type="button" data-action="whatsapp">WhatsApp</button>
+          <button type="button" data-action="copy">Copiar follow-up</button>
+          <button type="button" data-action="commercial-history">Histórico</button>
+          ${record.commercialStage !== "Perdido" ? '<button type="button" data-action="lost">Marcar perdido</button>' : ""}
+          ${record.status === "Lead" ? '<button type="button" data-action="client">Converter em cliente</button>' : ""}
+        </div>
+      `;
+      const actions = {
+        back: () => moveCommercialStage(record.id, -1),
+        advance: () => moveCommercialStage(record.id, 1),
+        edit: () => fillForm(record),
+        whatsapp: () => openPipelineWhatsApp(record.id),
+        copy: () => copyFollowUp(record.id),
+        "commercial-history": () => showCommercialHistory(record.id),
+        lost: () => openLossDialog(record.id),
+        client: () => markAsClient(record.id)
+      };
+      Object.entries(actions).forEach(([action, handler]) => {
+        const button = card.querySelector(`[data-action="${action}"]`);
+        if (button) button.onclick = handler;
+      });
+      body.appendChild(card);
+    });
+    board.appendChild(column);
+  });
+}
+
 function renderTable() {
   const body = $("recordsTable");
   const data = getFilteredRecords();
   if (!data.length) {
-    body.innerHTML = '<tr><td colspan="9">Nenhum cadastro encontrado.</td></tr>';
+    body.innerHTML = '<tr><td colspan="8">Nenhum cadastro encontrado.</td></tr>';
     return;
   }
 
@@ -1039,7 +1836,8 @@ function renderTable() {
       : formatDate(record.dueDate);
     const actions = [
       '<button class="btn btn-secondary btn-small" type="button" data-action="edit">Editar</button>',
-      '<button class="btn btn-secondary btn-small" type="button" data-action="history">Histórico</button>'
+      '<button class="btn btn-secondary btn-small" type="button" data-action="history">Financeiro</button>',
+      '<button class="btn btn-secondary btn-small" type="button" data-action="commercial-history">Comercial</button>'
     ];
 
     if (record.status === "Lead") {
@@ -1067,12 +1865,16 @@ function renderTable() {
 
     row.innerHTML = `
       <td>
-        <strong>${escapeHtml(record.name || "-")}</strong><br>
-        <span class="muted">${escapeHtml(record.phone || "")}${record.email ? ` • ${escapeHtml(record.email)}` : ""}</span>
+        <strong>${escapeHtml(record.name || "-")}</strong>
+        ${record.company ? `<br><span>${escapeHtml(record.company)}</span>` : ""}
+        <br><span class="muted">${escapeHtml(record.phone || "")}${record.email ? ` • ${escapeHtml(record.email)}` : ""}</span>
       </td>
-      <td>${record.documentNumber ? escapeHtml(formatDoc(record.documentNumber)) : "-"}</td>
-      <td>${escapeHtml(record.plan || "-")}</td>
-      <td>${escapeHtml(formatMoney(record.value))}</td>
+      <td>
+        <span class="temperature-badge ${record.leadTemperature.toLowerCase()}">${escapeHtml(record.leadTemperature)}</span>
+        <br><strong>${escapeHtml(record.commercialStage)}</strong>
+        <br><span class="muted">${escapeHtml(record.leadSource || "Origem não informada")}</span>
+      </td>
+      <td>${escapeHtml(record.plan || "-")}<br><span class="muted">${escapeHtml(formatMoney(record.value))}</span></td>
       <td>
         <span class="badge ${escapeHtml(record.status)}">${escapeHtml(record.status)}</span>
         ${overdue ? '<br><span class="badge overdue">atrasado</span>' : ""}
@@ -1083,15 +1885,16 @@ function renderTable() {
       <td><div class="actions">${actions.join("")}</div></td>
     `;
 
-    row.querySelector('[data-action="edit"]').onclick = () => fillForm(record);
-    row.querySelector('[data-action="history"]').onclick = () => showHistory(record.id);
-    row.querySelector('[data-action="delete"]').onclick = () => deleteRecord(record.id);
     const actionMap = {
+      edit: () => fillForm(record),
+      history: () => showHistory(record.id),
+      "commercial-history": () => showCommercialHistory(record.id),
+      delete: () => deleteRecord(record.id),
       follow: () => openFollowUp(record.id),
       client: () => markAsClient(record.id),
-      paid: () => registerPayment(record.id, 1),
-      paid1: () => registerPayment(record.id, 1),
-      paid2: () => registerPayment(record.id, 2),
+      paid: () => openPaymentDialog(record.id, 1),
+      paid1: () => openPaymentDialog(record.id, 1),
+      paid2: () => openPaymentDialog(record.id, 2),
       charge: () => openCharge(record.id, 1),
       charge1: () => openCharge(record.id, 1),
       charge2: () => openCharge(record.id, 2)
@@ -1109,20 +1912,94 @@ function showHistory(id) {
   if (!record) return;
   const content = $("historyContent");
   const history = record.paymentHistory || [];
+  const paymentsMarkup = !history.length
+    ? `<p class="muted">Nenhum pagamento registrado para ${escapeHtml(record.name)}.</p>`
+    : history.map((item) => {
+      const hasReceipt = Boolean(item.receiptNumber && item.receiptData);
+      return `
+        <div class="history-row payment-history-row">
+          <div class="payment-history-info">
+            <strong>${escapeHtml(item.installment)}</strong>
+            <span>Pago em ${escapeHtml(formatDate(item.paidAt))} • ${escapeHtml(item.paymentMethod || "Não informado")}</span>
+            <span>Referência: ${escapeHtml(item.referencePeriod || "-")} • Vencimento: ${escapeHtml(formatDate(item.previousDueDate))}</span>
+            ${item.notes ? `<span>Observações: ${escapeHtml(item.notes)}</span>` : ""}
+            ${hasReceipt ? `<span class="receipt-number">Recibo ${escapeHtml(item.receiptNumber)}</span>` : ""}
+          </div>
+          <div class="payment-history-value">
+            <strong>${escapeHtml(formatMoney(item.amount))}</strong>
+            <div class="receipt-actions">
+              ${hasReceipt
+                ? `
+                  <button class="btn btn-secondary btn-small" type="button" data-receipt-action="download" data-payment-id="${escapeHtml(item.id)}">Baixar recibo</button>
+                  <button class="btn btn-warning btn-small" type="button" data-receipt-action="regenerate" data-payment-id="${escapeHtml(item.id)}">Gerar novamente</button>
+                  <button class="btn btn-ghost btn-small" type="button" data-receipt-action="copy-message">Copiar mensagem WhatsApp</button>
+                `
+                : `<button class="btn btn-primary btn-small" type="button" data-receipt-action="generate" data-payment-id="${escapeHtml(item.id)}">Gerar recibo em PDF</button>`
+              }
+            </div>
+          </div>
+        </div>
+      `;
+    }).join("");
+  const financialHistory = record.financialHistory || [];
+  const financialMarkup = financialHistory.length
+    ? `
+      <div class="history-section-title">
+        <p class="section-kicker">Auditoria financeira</p>
+        <h3>Histórico financeiro</h3>
+      </div>
+      <div class="timeline">
+        ${financialHistory.map((item) => `
+          <div class="timeline-item">
+            <span class="timeline-dot"></span>
+            <div>
+              <strong>${escapeHtml(item.type)}</strong>
+              <small>${escapeHtml(formatDateTime(item.createdAt))}</small>
+              <p>${escapeHtml(item.description)}</p>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    `
+    : "";
+  content.innerHTML = `${paymentsMarkup}${financialMarkup}`;
+
+  content.querySelectorAll("[data-receipt-action]").forEach((button) => {
+    const action = button.dataset.receiptAction;
+    const paymentId = button.dataset.paymentId;
+    if (action === "generate" || action === "regenerate") {
+      button.onclick = () => generateReceipt(record.id, paymentId);
+    }
+    if (action === "download") {
+      button.onclick = () => downloadExistingReceipt(record.id, paymentId);
+    }
+    if (action === "copy-message") {
+      button.onclick = copyReceiptMessage;
+    }
+  });
+  if (!$("historyDialog").open) $("historyDialog").showModal();
+}
+
+function showCommercialHistory(id) {
+  const record = records.find((item) => item.id === id);
+  if (!record) return;
+  const content = $("commercialHistoryContent");
+  const history = record.commercialHistory || [];
   if (!history.length) {
-    content.innerHTML = `<p class="muted">Nenhum pagamento registrado para ${escapeHtml(record.name)}.</p>`;
+    content.innerHTML = `<p class="muted">Nenhuma ação comercial registrada para ${escapeHtml(record.name)}.</p>`;
   } else {
     content.innerHTML = history.map((item) => `
-      <div class="history-row">
+      <div class="timeline-item">
+        <span class="timeline-dot"></span>
         <div>
-          <strong>${escapeHtml(item.installment)}</strong><br>
-          <span class="muted">Pago em ${escapeHtml(formatDate(item.paidAt))} | Vencimento: ${escapeHtml(formatDate(item.previousDueDate))}</span>
+          <strong>${escapeHtml(item.type)}</strong>
+          <small>${escapeHtml(formatDateTime(item.createdAt))}</small>
+          <p>${escapeHtml(item.description)}</p>
         </div>
-        <strong>${escapeHtml(formatMoney(item.amount))}</strong>
       </div>
     `).join("");
   }
-  $("historyDialog").showModal();
+  if (!$("commercialHistoryDialog").open) $("commercialHistoryDialog").showModal();
 }
 
 function renderTrash() {
@@ -1187,6 +2064,8 @@ function openSnapshotsDialog() {
 function render() {
   renderMetrics();
   renderAlerts();
+  renderPipelineSummary();
+  renderPipeline();
   renderTable();
   renderTrash();
   renderSnapshotSummary();
@@ -1203,6 +2082,37 @@ $("clientForm").addEventListener("submit", (event) => {
   upsertRecord(record);
 });
 
+$("paymentForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const amount = parseMoney($("paymentAmount").value);
+  if (amount <= 0) {
+    toast("Informe um valor recebido maior que zero.");
+    return;
+  }
+  registerPayment(
+    $("paymentRecordId").value,
+    Number($("paymentInstallment").value) || 1,
+    {
+      amount,
+      paymentMethod: $("paymentMethod").value,
+      paidAt: $("paymentDate").value,
+      referencePeriod: $("paymentReference").value.trim(),
+      notes: $("paymentNotes").value.trim()
+    }
+  );
+});
+
+$("lossForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const selected = $("lossReasonSelect").value;
+  const reason = selected === "Outro" ? $("lossReasonOther").value.trim() : selected;
+  if (!reason) {
+    toast("Informe o motivo da perda.");
+    return;
+  }
+  markAsLost($("lossRecordId").value, reason);
+});
+
 $("plan").addEventListener("change", () => {
   const plan = $("plan").value;
   if (planValues[plan] && !$("value").value) {
@@ -1210,6 +2120,16 @@ $("plan").addEventListener("change", () => {
   }
 });
 $("paymentType").addEventListener("change", toggleDue2);
+$("commercialStage").addEventListener("change", toggleLossReason);
+$("status").addEventListener("change", () => {
+  if ($("status").value !== "Lead" && $("commercialStage").value === "Novo lead") {
+    $("commercialStage").value = "Fechado";
+    toggleLossReason();
+  }
+});
+$("lossReasonSelect").addEventListener("change", () => {
+  $("lossReasonOtherWrap").classList.toggle("hidden", $("lossReasonSelect").value !== "Outro");
+});
 $("documentNumber").addEventListener("blur", () => {
   $("documentNumber").value = formatDoc($("documentNumber").value);
 });
@@ -1220,13 +2140,29 @@ $("email").addEventListener("blur", () => {
   $("email").value = normalizeEmail($("email").value);
 });
 $("clearFormBtn").onclick = clearForm;
+$("newLeadFromPipelineBtn").onclick = () => {
+  clearForm();
+  setActiveTab("records");
+  $("name").focus();
+};
 $("exportBackupBtn").onclick = exportBackup;
 $("importBackupInput").onchange = (event) => prepareImport(event.target.files[0]);
 $("restoreSnapshotBtn").onclick = openSnapshotsDialog;
 $("saveGoalBtn").onclick = saveGoal;
-$("searchInput").oninput = renderTable;
-$("statusFilter").onchange = renderTable;
+[
+  "searchInput",
+  "statusFilter",
+  "sourceFilter",
+  "temperatureFilter",
+  "stageFilter",
+  "commercialFilter"
+].forEach((id) => {
+  $(id).addEventListener(id === "searchInput" ? "input" : "change", renderTable);
+});
 $("closeHistoryBtn").onclick = () => $("historyDialog").close();
+$("closeCommercialHistoryBtn").onclick = () => $("commercialHistoryDialog").close();
+$("closePaymentBtn").onclick = () => $("paymentDialog").close();
+$("closeLossBtn").onclick = () => $("lossDialog").close();
 $("closeSnapshotsBtn").onclick = () => $("snapshotsDialog").close();
 $("closeImportBtn").onclick = closeImportDialog;
 $("replaceImportBtn").onclick = () => performImport("replace");
@@ -1253,7 +2189,9 @@ function importLeadFromUrl() {
       status: "Lead",
       paymentType: "1x",
       value: parsed.value || 0,
-      notes: parsed.notes || "Origem: Proposta AXIS 1"
+      notes: parsed.notes || "Origem: Proposta AXIS 1",
+      commercialStage: parsed.commercialStage || "Novo lead",
+      leadTemperature: parsed.leadTemperature || "Morno"
     });
 
     if (!lead.name || lead.phone.length < 10 || lead.phone.length > 11) {
@@ -1274,11 +2212,12 @@ function importLeadFromUrl() {
       return;
     }
 
+    addCommercialHistory(lead, "Cadastro criado", "Lead importado automaticamente pela URL.");
     applyImportantChange(`Antes de importar o lead ${lead.name} pela URL`, () => {
       records.unshift(lead);
     });
     window.history.replaceState({}, document.title, window.location.pathname);
-    setActiveTab("records");
+    setActiveTab("pipeline");
     window.alert("Lead importado automaticamente no CRM.");
   } catch (error) {
     console.error(error);
@@ -1289,5 +2228,6 @@ function importLeadFromUrl() {
 persistData();
 loadGoal();
 toggleDue2();
+toggleLossReason();
 render();
 importLeadFromUrl();

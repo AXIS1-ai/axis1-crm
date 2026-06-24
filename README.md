@@ -1,25 +1,35 @@
-# CRM AXIS 1 v3 — Etapa 1
+# CRM AXIS 1 v3 — Etapa 2
 
 Aplicação em HTML, CSS e JavaScript puro, sem dependências externas. Os dados continuam armazenados no `localStorage` do navegador.
 
-## Melhorias desta etapa
+## Pipeline Comercial
 
-- snapshots completos criados antes de alterações importantes;
-- histórico com até 10 versões anteriores e restauração individual;
-- backup com `schemaVersion`, `exportedAt`, `records`, `trash`, `monthlyGoal` e `snapshots`;
-- importação compatível com backups antigos;
-- opções para substituir ou mesclar dados;
-- prevenção de duplicados por telefone, CPF/CNPJ ou e-mail;
-- normalização e validação real de CPF e CNPJ;
-- proteção de textos renderizados na interface;
-- organização em Dashboard, Cadastros e Backup e Segurança.
+- sete etapas comerciais em colunas;
+- origem, temperatura, próxima ação, próximo contato e motivo de perda;
+- alertas para follow-ups atrasados, de hoje e dos próximos três dias;
+- avanço e retorno rápido de etapa;
+- mensagens de follow-up por etapa;
+- ações de WhatsApp, conversão e perda;
+- histórico comercial com data, tipo e descrição;
+- filtros comerciais na aba Cadastros.
+
+## Recibos de Pagamento
+
+- registro detalhado do pagamento antes de confirmar;
+- recibo profissional em PDF gerado localmente;
+- número único no formato `AXIS1-REC-ANO-0001`;
+- regeneração do mesmo pagamento sem trocar o número;
+- dados do recibo preservados no pagamento, histórico financeiro e backup;
+- mensagem pronta para envio manual por WhatsApp.
+
+## Compatibilidade
+
+Registros e pagamentos antigos são migrados automaticamente com valores padrão. As chaves anteriores do `localStorage`, snapshots, lixeira, backup universal, validações e fluxos da Etapa 1 permanecem compatíveis.
 
 ## Atualização recomendada
 
-1. Abra a versão atual do CRM.
-2. Exporte um backup antes de publicar os novos arquivos.
-3. Substitua `index.html`, `style.css`, `script.js` e `README.md`.
-4. Abra o CRM e confirme se os cadastros existentes foram carregados.
-5. Exporte um novo backup no formato v3.
-
-As chaves anteriores do `localStorage` continuam reconhecidas para preservar a base existente.
+1. Exporte um backup da versão atual.
+2. Substitua `index.html`, `style.css`, `script.js` e `README.md`.
+3. Abra o CRM e confirme os dados existentes.
+4. Teste um pagamento e gere um recibo.
+5. Exporte um novo backup no formato da Etapa 2.

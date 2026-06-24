@@ -11,13 +11,14 @@
     <div>
       <p class="eyebrow">AXIS 1</p>
       <h1>CRM v3</h1>
-      <p class="subtitle">Leads, clientes, financeiro e dados protegidos em uma base mais segura.</p>
+      <p class="subtitle">Comercial, clientes, financeiro e dados protegidos em uma operação integrada.</p>
     </div>
-    <div class="version-pill">Etapa 1 • Base e segurança</div>
+    <div class="version-pill">Etapa 2 • Pipeline e recibos</div>
   </header>
 
   <nav class="tabs" aria-label="Navegação principal">
     <button class="tab-button active" type="button" data-tab="dashboard" aria-selected="true">Dashboard</button>
+    <button class="tab-button" type="button" data-tab="pipeline" aria-selected="false">Pipeline Comercial</button>
     <button class="tab-button" type="button" data-tab="records" aria-selected="false">Cadastros</button>
     <button class="tab-button" type="button" data-tab="security" aria-selected="false">Backup e Segurança</button>
   </nav>
@@ -52,6 +53,40 @@
       </section>
     </section>
 
+    <section class="tab-panel" data-tab-panel="pipeline">
+      <section class="panel protection pipeline-hero">
+        <div>
+          <p class="section-kicker">Visão comercial</p>
+          <h2>Pipeline Comercial</h2>
+          <p>Acompanhe cada oportunidade, seus próximos passos e os follow-ups que pedem atenção.</p>
+        </div>
+        <button id="newLeadFromPipelineBtn" class="btn btn-primary" type="button">Novo lead</button>
+      </section>
+
+      <section class="pipeline-summary">
+        <article class="metric-card"><span>Leads abertos</span><strong id="pipelineOpenCount">0</strong></article>
+        <article class="metric-card temperature-hot"><span>Leads quentes</span><strong id="pipelineHotCount">0</strong></article>
+        <article class="metric-card"><span>Propostas enviadas</span><strong id="pipelineProposalCount">0</strong></article>
+        <article class="metric-card danger"><span>Follow-ups atrasados</span><strong id="pipelineOverdueCount">0</strong></article>
+        <article class="metric-card"><span>Leads ganhos</span><strong id="pipelineWonCount">0</strong></article>
+        <article class="metric-card"><span>Leads perdidos</span><strong id="pipelineLostCount">0</strong></article>
+      </section>
+
+      <section class="pipeline-toolbar panel">
+        <div>
+          <p class="section-kicker">Acompanhamento</p>
+          <h2>Oportunidades por etapa</h2>
+        </div>
+        <div class="pipeline-legend">
+          <span class="temperature-badge cold">Frio</span>
+          <span class="temperature-badge warm">Morno</span>
+          <span class="temperature-badge hot">Quente</span>
+        </div>
+      </section>
+
+      <div id="pipelineBoard" class="pipeline-board" aria-label="Etapas do pipeline comercial"></div>
+    </section>
+
     <section class="tab-panel" data-tab-panel="records">
       <section class="panel form-panel">
         <div class="section-head">
@@ -65,8 +100,11 @@
         <form id="clientForm">
           <input type="hidden" id="recordId" />
           <div class="grid">
-            <label>Nome/Razão social
-              <input id="name" required placeholder="Ex: Clínica Exemplo" />
+            <label>Nome do contato
+              <input id="name" required placeholder="Ex: Maria Silva" />
+            </label>
+            <label>Empresa
+              <input id="company" placeholder="Ex: Clínica Exemplo" />
             </label>
             <label>CNPJ/CPF
               <input id="documentNumber" inputmode="numeric" placeholder="Ex: 39.385.385/0001-98" />
@@ -78,7 +116,7 @@
               <input id="email" type="email" placeholder="cliente@email.com" />
             </label>
             <label>Plano
-              <select id="plan" required>
+              <select id="plan">
                 <option value="">Selecione</option>
                 <option value="Essencial">Essencial</option>
                 <option value="Estratégico">Estratégico</option>
@@ -88,18 +126,18 @@
                 <option value="Outro">Outro</option>
               </select>
             </label>
-            <label>Valor mensal
+            <label>Valor mensal/estimado
               <input id="value" type="text" inputmode="decimal" placeholder="Ex: 549,90" />
             </label>
-            <label>Status
+            <label>Tipo de cadastro
               <select id="status" required>
                 <option value="Lead">Lead</option>
-                <option value="Ativo">Ativo</option>
-                <option value="Pausado">Pausado</option>
-                <option value="Cancelado">Cancelado</option>
+                <option value="Ativo">Cliente ativo</option>
+                <option value="Pausado">Cliente pausado</option>
+                <option value="Cancelado">Cliente cancelado</option>
               </select>
             </label>
-            <label>Forma de pagamento
+            <label>Forma de pagamento contratada
               <select id="paymentType">
                 <option value="1x">Mensal / 1x</option>
                 <option value="2x">2x no mês</option>
@@ -119,8 +157,53 @@
             </label>
           </div>
 
+          <fieldset class="commercial-fields">
+            <legend>Informações Comerciais</legend>
+            <div class="grid">
+              <label>Origem do lead
+                <select id="leadSource">
+                  <option value="">Não informado</option>
+                  <option value="Instagram">Instagram</option>
+                  <option value="WhatsApp">WhatsApp</option>
+                  <option value="Indicação">Indicação</option>
+                  <option value="Site">Site</option>
+                  <option value="Tráfego Pago">Tráfego Pago</option>
+                  <option value="Prospecção Ativa">Prospecção Ativa</option>
+                  <option value="Outro">Outro</option>
+                </select>
+              </label>
+              <label>Temperatura
+                <select id="leadTemperature">
+                  <option value="Frio">Frio</option>
+                  <option value="Morno" selected>Morno</option>
+                  <option value="Quente">Quente</option>
+                </select>
+              </label>
+              <label>Etapa comercial
+                <select id="commercialStage" required>
+                  <option value="Novo lead">Novo lead</option>
+                  <option value="Em contato">Em contato</option>
+                  <option value="Diagnóstico feito">Diagnóstico feito</option>
+                  <option value="Proposta enviada">Proposta enviada</option>
+                  <option value="Aguardando resposta">Aguardando resposta</option>
+                  <option value="Fechado">Fechado</option>
+                  <option value="Perdido">Perdido</option>
+                </select>
+              </label>
+              <label>Data do próximo contato
+                <input id="nextContactDate" type="date" />
+              </label>
+            </div>
+            <label>Próxima ação
+              <input id="nextAction" placeholder="Ex: enviar proposta revisada" />
+            </label>
+            <label id="lossReasonWrap" class="hidden">Motivo de perda
+              <input id="lossReason" placeholder="Ex: sem orçamento no momento" />
+            </label>
+          </fieldset>
+
           <label>Observações
-            <textarea id="notes" rows="3" placeholder="Ex: origem do lead, combinado financeiro, detalhes do plano..."></textarea>
+            <textarea id="notes" rows="3" placeholder="Ex: combinado financeiro, detalhes do plano ou contexto do atendimento..."></textarea>
           </label>
 
           <div class="form-actions">
@@ -135,14 +218,47 @@
             <p class="section-kicker">Base comercial</p>
             <h2>Cadastros</h2>
           </div>
-          <div class="filters">
-            <input id="searchInput" placeholder="Buscar por nome, CNPJ, plano ou telefone..." />
-            <select id="statusFilter" aria-label="Filtrar por status">
-              <option value="Todos">Todos</option>
+          <div class="filters filters-expanded">
+            <input id="searchInput" placeholder="Buscar por nome, empresa, CNPJ, plano ou telefone..." />
+            <select id="statusFilter" aria-label="Filtrar por tipo de cadastro">
+              <option value="Todos">Todos os tipos</option>
               <option value="Lead">Leads</option>
               <option value="Ativo">Ativos</option>
               <option value="Pausado">Pausados</option>
               <option value="Cancelado">Cancelados</option>
+            </select>
+            <select id="sourceFilter" aria-label="Filtrar por origem">
+              <option value="Todos">Todas as origens</option>
+              <option value="Instagram">Instagram</option>
+              <option value="WhatsApp">WhatsApp</option>
+              <option value="Indicação">Indicação</option>
+              <option value="Site">Site</option>
+              <option value="Tráfego Pago">Tráfego Pago</option>
+              <option value="Prospecção Ativa">Prospecção Ativa</option>
+              <option value="Outro">Outro</option>
+            </select>
+            <select id="temperatureFilter" aria-label="Filtrar por temperatura">
+              <option value="Todos">Todas as temperaturas</option>
+              <option value="Frio">Frio</option>
+              <option value="Morno">Morno</option>
+              <option value="Quente">Quente</option>
+            </select>
+            <select id="stageFilter" aria-label="Filtrar por etapa comercial">
+              <option value="Todos">Todas as etapas</option>
+              <option value="Novo lead">Novo lead</option>
+              <option value="Em contato">Em contato</option>
+              <option value="Diagnóstico feito">Diagnóstico feito</option>
+              <option value="Proposta enviada">Proposta enviada</option>
+              <option value="Aguardando resposta">Aguardando resposta</option>
+              <option value="Fechado">Fechado</option>
+              <option value="Perdido">Perdido</option>
+            </select>
+            <select id="commercialFilter" aria-label="Filtrar por situação comercial">
+              <option value="Todos">Todas as situações</option>
+              <option value="Atrasados">Próximo contato atrasado</option>
+              <option value="Propostas">Propostas enviadas</option>
+              <option value="Perdidos">Leads perdidos</option>
+              <option value="Fechados">Leads fechados</option>
             </select>
           </div>
         </div>
@@ -152,9 +268,8 @@
             <thead>
               <tr>
                 <th>Contato</th>
-                <th>CNPJ/CPF</th>
-                <th>Plano</th>
-                <th>Valor</th>
+                <th>Comercial</th>
+                <th>Plano/Valor</th>
                 <th>Status</th>
                 <th>Pagamento</th>
                 <th>Vencimento(s)</th>
@@ -181,7 +296,7 @@
         <article class="panel security-card">
           <span class="security-icon">01</span>
           <h2>Backup completo</h2>
-          <p>Inclui cadastros, lixeira, meta mensal e versões anteriores.</p>
+          <p>Inclui cadastros, pipeline, pagamentos, recibos, lixeira, meta mensal e versões anteriores.</p>
           <div class="security-actions">
             <button id="exportBackupBtn" class="btn btn-primary" type="button">Exportar backup</button>
             <label class="btn btn-secondary file-label">
@@ -214,12 +329,97 @@
     </section>
   </main>
 
-  <dialog id="historyDialog">
+  <dialog id="historyDialog" class="wide-dialog">
     <div class="modal-head">
-      <h2>Histórico de pagamentos</h2>
+      <div>
+        <p class="section-kicker">Financeiro</p>
+        <h2>Histórico de pagamentos e recibos</h2>
+      </div>
       <button id="closeHistoryBtn" class="btn btn-ghost" type="button">Fechar</button>
     </div>
     <div id="historyContent"></div>
+  </dialog>
+
+  <dialog id="commercialHistoryDialog">
+    <div class="modal-head">
+      <div>
+        <p class="section-kicker">Relacionamento</p>
+        <h2>Histórico comercial</h2>
+      </div>
+      <button id="closeCommercialHistoryBtn" class="btn btn-ghost" type="button">Fechar</button>
+    </div>
+    <div id="commercialHistoryContent" class="timeline"></div>
+  </dialog>
+
+  <dialog id="paymentDialog">
+    <div class="modal-head">
+      <div>
+        <p class="section-kicker">Registrar recebimento</p>
+        <h2>Dados do pagamento</h2>
+      </div>
+      <button id="closePaymentBtn" class="btn btn-ghost" type="button">Fechar</button>
+    </div>
+    <form id="paymentForm">
+      <input id="paymentRecordId" type="hidden" />
+      <input id="paymentInstallment" type="hidden" />
+      <div class="grid two-columns">
+        <label>Valor recebido
+          <input id="paymentAmount" inputmode="decimal" required />
+        </label>
+        <label>Forma de pagamento
+          <select id="paymentMethod" required>
+            <option value="Pix">Pix</option>
+            <option value="Transferência">Transferência</option>
+            <option value="Boleto">Boleto</option>
+            <option value="Cartão">Cartão</option>
+            <option value="Dinheiro">Dinheiro</option>
+            <option value="Outro">Outro</option>
+          </select>
+        </label>
+        <label>Data do pagamento
+          <input id="paymentDate" type="date" required />
+        </label>
+        <label>Período de referência
+          <input id="paymentReference" required placeholder="Ex: Junho/2026" />
+        </label>
+      </div>
+      <label>Observações do pagamento
+        <textarea id="paymentNotes" rows="3" placeholder="Opcional"></textarea>
+      </label>
+      <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Confirmar pagamento</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="lossDialog">
+    <div class="modal-head">
+      <div>
+        <p class="section-kicker">Encerrar oportunidade</p>
+        <h2>Marcar lead como perdido</h2>
+      </div>
+      <button id="closeLossBtn" class="btn btn-ghost" type="button">Fechar</button>
+    </div>
+    <form id="lossForm">
+      <input id="lossRecordId" type="hidden" />
+      <label>Motivo da perda
+        <select id="lossReasonSelect" required>
+          <option value="">Selecione</option>
+          <option value="Preço">Preço</option>
+          <option value="Sem resposta">Sem resposta</option>
+          <option value="Fechou com concorrente">Fechou com concorrente</option>
+          <option value="Sem orçamento no momento">Sem orçamento no momento</option>
+          <option value="Não era perfil ideal">Não era perfil ideal</option>
+          <option value="Outro">Outro</option>
+        </select>
+      </label>
+      <label id="lossReasonOtherWrap" class="hidden">Outro motivo
+        <input id="lossReasonOther" placeholder="Descreva o motivo" />
+      </label>
+      <div class="form-actions">
+        <button class="btn btn-danger" type="submit">Confirmar perda</button>
+      </div>
+    </form>
   </dialog>
 
   <dialog id="snapshotsDialog">
@@ -250,7 +450,7 @@
       </button>
       <button id="mergeImportBtn" class="import-option" type="button">
         <strong>Mesclar com os dados atuais</strong>
-        <span>Evita duplicados e preserva as informações mais completas.</span>
+        <span>Evita duplicados e preserva informações comerciais, pagamentos e recibos.</span>
       </button>
     </div>
   </dialog>
