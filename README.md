@@ -4,6 +4,10 @@ Aplicação em HTML, CSS e JavaScript puro, sem dependências externas. Os dados
 
 ## Financeiro Avançado
 
+- divisão da mensalidade em duas parcelas configurável por cliente, mantendo 60% + 40% como padrão;
+- cálculo automático das parcelas a partir do valor mensal, com validação de soma exata de 100%;
+- parcelas e saldos já registrados preservam os valores históricos quando a configuração do cliente muda;
+
 - visão geral de receita prevista, recebida, em aberto e em atraso;
 - status financeiro automático por cliente;
 - pagamentos totais e parciais, com controle do saldo restante;
@@ -37,6 +41,10 @@ Aplicação em HTML, CSS e JavaScript puro, sem dependências externas. Os dados
 ## Compatibilidade
 
 Registros e pagamentos antigos são migrados automaticamente com valores padrão. As chaves anteriores do `localStorage`, snapshots, lixeira, backup universal, validações e fluxos da Etapa 1 permanecem compatíveis.
+
+## Proteção de persistência
+
+As gravações verificam a integridade do conteúdo, usam um diário temporário para recuperar gravações interrompidas e tentam restaurar os valores anteriores quando uma chave falha. Em caso de leitura inválida ou falha de recuperação, novas gravações ficam bloqueadas e o CRM informa o problema. O esquema v5 dos dados, os formatos de backup e as chaves operacionais existentes são preservados.
 
 ## Atualização recomendada
 

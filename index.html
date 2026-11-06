@@ -259,6 +259,12 @@
                 <option value="2x">2x no mês</option>
               </select>
             </label>
+            <label id="installment1PercentWrap" class="hidden">Percentual da 1ª parcela
+              <input id="installment1Percent" type="number" min="1" max="99" step="1" value="60" inputmode="numeric" />
+            </label>
+            <label id="installment2PercentWrap" class="hidden">Percentual da 2ª parcela
+              <input id="installment2Percent" type="number" min="1" max="99" step="1" value="40" inputmode="numeric" />
+            </label>
             <label>Data do primeiro contato
               <input id="firstContactDate" type="date" />
             </label>
@@ -272,6 +278,7 @@
               <input id="dueDate2" type="date" />
             </label>
           </div>
+          <p id="installmentPercentHint" class="muted hidden">A soma das duas parcelas deve ser exatamente 100%.</p>
 
           <fieldset class="commercial-fields">
             <legend>Informações Comerciais</legend>

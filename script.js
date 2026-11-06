@@ -17,6 +17,15 @@ const TRASH_KEY = "axis1_crm_v2_trash";
 const GOAL_KEY = "axis1_crm_v2_goal";
 const RECEIPT_COUNTER_KEY = "axis1_crm_v3_receipt_counters";
 const FINANCIAL_REPORTS_KEY = "axis1_crm_v3_financial_reports";
+const PERSISTENCE_JOURNAL_KEY = "axis1_crm_v5_persistence_journal";
+const PERSISTENCE_KEYS = [
+  STORAGE_KEY,
+  TRASH_KEY,
+  GOAL_KEY,
+  RECEIPT_COUNTER_KEY,
+  FINANCIAL_REPORTS_KEY,
+  SNAPSHOT_KEY
+];
 const MAX_SNAPSHOTS = 10;
 const AXIS_WHATSAPP = "(16) 99742-4912";
 const RECEIPT_MESSAGE = "MENSAGEM AUTOMÁTICA GERADA PELO SISTEMA INTELIGENTE AXIS1 - Olá, tudo bem? Segue o recibo referente ao pagamento do serviço contratado com a AXIS 1. Qualquer dúvida, ficamos à disposição.";
@@ -58,6 +67,72 @@ const planValues = {
 };
 
 const $ = (id) => document.getElementById(id);
+let persistenceWarning = "";
+let storageLoadError = false;
+
+function safeStorageGet(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch (error) {
+    persistenceWarning = `Não foi possível ler os dados locais (${key}). O CRM não sobrescreveu o conteúdo em memória. Detalhe: ${error.message || "erro de armazenamento"}`;
+    throw error;
+  }
+}
+
+function safeStorageSet(key, value) {
+  const serialized = String(value);
+  localStorage.setItem(key, serialized);
+  if (localStorage.getItem(key) !== serialized) {
+    throw new Error(`A conferência da gravação falhou para ${key}.`);
+  }
+}
+
+function safeStorageRemove(key) {
+  localStorage.removeItem(key);
+  if (localStorage.getItem(key) !== null) {
+    throw new Error(`Não foi possível concluir a limpeza de ${key}.`);
+  }
+}
+
+function recoverPersistenceJournal() {
+  let raw;
+  try {
+    raw = localStorage.getItem(PERSISTENCE_JOURNAL_KEY);
+  } catch (error) {
+    persistenceWarning = `Não foi possível verificar a recuperação local. Nenhuma alteração nova será salva. Detalhe: ${error.message || "erro de armazenamento"}`;
+    return false;
+  }
+  if (!raw) return true;
+
+  try {
+    const journal = JSON.parse(raw);
+    if (!journal || journal.schemaVersion !== SCHEMA_VERSION || !journal.previous || typeof journal.previous !== "object") {
+      throw new Error("diário de recuperação inválido");
+    }
+    PERSISTENCE_KEYS.forEach((key) => {
+      const previous = journal.previous[key];
+      if (previous === null || typeof previous === "string") {
+        localStorage.setItem(key, previous === null ? "" : previous);
+        if (localStorage.getItem(key) !== (previous === null ? "" : previous)) {
+          throw new Error(`não foi possível recuperar ${key}`);
+        }
+        if (previous === null) {
+          localStorage.removeItem(key);
+          if (localStorage.getItem(key) !== null) throw new Error(`não foi possível limpar ${key}`);
+        }
+      }
+    });
+    localStorage.removeItem(PERSISTENCE_JOURNAL_KEY);
+    if (localStorage.getItem(PERSISTENCE_JOURNAL_KEY) !== null) throw new Error("não foi possível limpar o diário");
+    persistenceWarning = "Uma gravação interrompida foi revertida para a última versão íntegra.";
+    return true;
+  } catch (error) {
+    persistenceWarning = `A recuperação automática não foi concluída. Não faça novas alterações; exporte ou preserve os dados locais antes de tentar novamente. Detalhe: ${error.message || "diário inválido"}`;
+    return false;
+  }
+}
+
+const persistenceReady = recoverPersistenceJournal();
 
 function uid(prefix = "axis") {
   return `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
@@ -371,6 +446,13 @@ function normalizeRecord(record = {}) {
   const status = normalizeStatus(record.status || record.situacao || record.tipo);
   const paymentType = record.paymentType || record.tipoPagamento || record.formaPagamento || record.forma_pagamento || "1x";
   const value = parseMoney(record.value ?? record.valor ?? record.valorMensal ?? record.valor_mensal ?? record.investimento ?? 0);
+  const rawFirstPercent = Number(record.installment1Percent ?? record.percentualParcela1 ?? 60);
+  const rawSecondPercent = Number(record.installment2Percent ?? record.percentualParcela2 ?? 40);
+  const splitIsValid = Number.isInteger(rawFirstPercent)
+    && Number.isInteger(rawSecondPercent)
+    && rawFirstPercent > 0
+    && rawSecondPercent > 0
+    && rawFirstPercent + rawSecondPercent === 100;
   const history = Array.isArray(record.paymentHistory)
     ? record.paymentHistory
     : (Array.isArray(record.historicoPagamentos) ? record.historicoPagamentos : []);
@@ -409,6 +491,8 @@ function normalizeRecord(record = {}) {
     value,
     status,
     paymentType: String(paymentType).includes("2") ? "2x" : "1x",
+    installment1Percent: splitIsValid ? rawFirstPercent : 60,
+    installment2Percent: splitIsValid ? rawSecondPercent : 40,
     firstContactDate: record.firstContactDate || record.primeiroContato || record.primeiro_contato || record.dataPrimeiroContato || record.data_primeiro_contato || record.contactDate || "",
     startDate: record.startDate || record.dataInicio || record.data_inicio || record.inicio || "",
     dueDate: record.dueDate || record.vencimento || record.proximoVencimento || record.proximo_vencimento || record.dataVencimento || "",
@@ -441,9 +525,10 @@ function migrateArray(value) {
 function expectedInstallmentAmount(record, installment = 1) {
   const total = Number(record.value) || 0;
   if (record.paymentType !== "2x") return total;
-  return installment === 1
-    ? Math.round(total * 0.60 * 100) / 100
-    : Math.round(total * 0.40 * 100) / 100;
+  const firstPercent = Number(record.installment1Percent) || 60;
+  const totalCents = Math.round(total * 100);
+  const firstCents = Math.round(totalCents * firstPercent / 100);
+  return (installment === 1 ? firstCents : totalCents - firstCents) / 100;
 }
 
 function paymentMatchesInstallment(payment, record, installment) {
@@ -466,7 +551,6 @@ function getRecordReceivables(record) {
   return currentDueEntries(record)
     .filter((entry) => entry.dueDate)
     .map((entry) => {
-      const expectedAmount = expectedInstallmentAmount(record, entry.installment);
       const openBalance = (record.openBalances || []).find((balance) => (
         balance.installment === entry.installment
         && (balance.dueDate === entry.dueDate || balance.cycleId === `cycle-${stableHash(`${record.id}|${entry.dueDate}|${entry.installment}`)}`)
@@ -475,6 +559,10 @@ function getRecordReceivables(record) {
         payment.previousDueDate === entry.dueDate
         && paymentMatchesInstallment(payment, record, entry.installment)
       ));
+      // A obrigação já aberta conserva o valor definido quando o saldo foi criado,
+      // mesmo que o percentual padrão do cliente seja alterado depois.
+      const expectedAmount = openBalance?.expectedAmount
+        ?? expectedInstallmentAmount(record, entry.installment);
       const paidAmount = payments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
       const remainingAmount = openBalance
         ? openBalance.remainingAmount
@@ -581,14 +669,26 @@ function extractRecords(data) {
 
 function findInitialData() {
   for (const key of LEGACY_KEYS) {
-    const raw = localStorage.getItem(key);
+    let raw;
+    try {
+      raw = safeStorageGet(key);
+    } catch {
+      return [];
+    }
     if (!raw) continue;
     try {
       const extracted = extractRecords(JSON.parse(raw));
       if (Array.isArray(extracted) && extracted.length) return migrateArray(extracted);
       if (key === STORAGE_KEY && Array.isArray(extracted)) return [];
+      if (key === STORAGE_KEY) {
+        storageLoadError = true;
+        persistenceWarning = "A estrutura dos cadastros locais é inválida. O CRM bloqueou novas gravações para preservar os dados.";
+        return [];
+      }
     } catch {
       // Tenta a próxima chave legada.
+      storageLoadError = true;
+      persistenceWarning = `Os dados locais em ${key} estão ilegíveis. O CRM bloqueou novas gravações para preservar o conteúdo.`;
     }
   }
   return [];
@@ -596,30 +696,45 @@ function findInitialData() {
 
 function loadTrash() {
   try {
-    return migrateArray(JSON.parse(localStorage.getItem(TRASH_KEY) || "[]"));
+    return migrateArray(JSON.parse(safeStorageGet(TRASH_KEY) || "[]"));
   } catch {
+    storageLoadError = true;
+    persistenceWarning = "A lixeira local está ilegível. O CRM bloqueou novas gravações para preservar os dados.";
     return [];
   }
 }
 
 function readGoal() {
-  return parseMoney(localStorage.getItem(GOAL_KEY) || 0);
+  try {
+    const raw = safeStorageGet(GOAL_KEY);
+    const parsed = parseMoney(raw || 0);
+    if (raw && !Number.isFinite(Number(String(raw).replace(",", ".")))) throw new Error("meta inválida");
+    return parsed;
+  } catch {
+    storageLoadError = true;
+    persistenceWarning = "A meta mensal local está ilegível. O CRM bloqueou novas gravações para preservar os dados.";
+    return 0;
+  }
 }
 
 function readReceiptCounters() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(RECEIPT_COUNTER_KEY) || "{}");
+    const parsed = JSON.parse(safeStorageGet(RECEIPT_COUNTER_KEY) || "{}");
     return parsed && typeof parsed === "object" ? parsed : {};
   } catch {
+    storageLoadError = true;
+    persistenceWarning = "Os contadores de recibos estão ilegíveis. O CRM bloqueou novas gravações para preservar os dados.";
     return {};
   }
 }
 
 function readFinancialReports() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(FINANCIAL_REPORTS_KEY) || "[]");
+    const parsed = JSON.parse(safeStorageGet(FINANCIAL_REPORTS_KEY) || "[]");
     return Array.isArray(parsed) ? parsed : [];
   } catch {
+    storageLoadError = true;
+    persistenceWarning = "Os relatórios financeiros locais estão ilegíveis. O CRM bloqueou novas gravações para preservar os dados.";
     return [];
   }
 }
@@ -648,18 +763,19 @@ function normalizeSnapshot(snapshot = {}) {
 
 function getSnapshots() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(SNAPSHOT_KEY) || "[]");
+    const parsed = JSON.parse(safeStorageGet(SNAPSHOT_KEY) || "[]");
     return Array.isArray(parsed) ? parsed.map(normalizeSnapshot).slice(0, MAX_SNAPSHOTS) : [];
   } catch {
+    storageLoadError = true;
+    persistenceWarning = "Os snapshots locais estão ilegíveis. O CRM bloqueou novas gravações para preservar os dados.";
     return [];
   }
 }
 
 function setSnapshots(snapshots) {
-  localStorage.setItem(
-    SNAPSHOT_KEY,
-    JSON.stringify(snapshots.map(normalizeSnapshot).slice(0, MAX_SNAPSHOTS))
-  );
+  if (!persistenceReady || storageLoadError) throw new Error(persistenceWarning || "Armazenamento indisponível.");
+  const nextSnapshots = JSON.stringify(snapshots.map(normalizeSnapshot).slice(0, MAX_SNAPSHOTS));
+  safeStorageSet(SNAPSHOT_KEY, nextSnapshots);
 }
 
 let records = findInitialData();
@@ -690,18 +806,103 @@ function pushSnapshot(reason, state = captureState()) {
 }
 
 function persistData() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-  localStorage.setItem(TRASH_KEY, JSON.stringify(trash));
-  localStorage.setItem(GOAL_KEY, String(monthlyGoal || 0));
-  localStorage.setItem(RECEIPT_COUNTER_KEY, JSON.stringify(receiptCounters));
-  localStorage.setItem(FINANCIAL_REPORTS_KEY, JSON.stringify(financialReports));
+  if (!persistenceReady || storageLoadError) throw new Error(persistenceWarning || "Armazenamento indisponível.");
+  const next = {
+    [STORAGE_KEY]: JSON.stringify(records),
+    [TRASH_KEY]: JSON.stringify(trash),
+    [GOAL_KEY]: String(monthlyGoal || 0),
+    [RECEIPT_COUNTER_KEY]: JSON.stringify(receiptCounters),
+    [FINANCIAL_REPORTS_KEY]: JSON.stringify(financialReports),
+    [SNAPSHOT_KEY]: safeStorageGet(SNAPSHOT_KEY)
+  };
+  validatePersistencePayload(next);
+
+  const previous = {};
+  PERSISTENCE_KEYS.forEach((key) => { previous[key] = safeStorageGet(key); });
+  const journal = JSON.stringify({ schemaVersion: SCHEMA_VERSION, createdAt: new Date().toISOString(), previous });
+  safeStorageSet(PERSISTENCE_JOURNAL_KEY, journal);
+
+  try {
+    [STORAGE_KEY, TRASH_KEY, GOAL_KEY, RECEIPT_COUNTER_KEY, FINANCIAL_REPORTS_KEY].forEach((key) => {
+      safeStorageSet(key, next[key]);
+    });
+    safeStorageRemove(PERSISTENCE_JOURNAL_KEY);
+    persistenceWarning = "";
+  } catch (error) {
+    let rollbackError = null;
+    PERSISTENCE_KEYS.forEach((key) => {
+      try {
+        if (previous[key] === null) {
+          localStorage.removeItem(key);
+          if (localStorage.getItem(key) !== null) throw new Error(`Não foi possível restaurar ${key}.`);
+        } else {
+          safeStorageSet(key, previous[key]);
+        }
+      } catch (restoreError) {
+        rollbackError = rollbackError || restoreError;
+      }
+    });
+    if (!rollbackError) {
+      try { safeStorageRemove(PERSISTENCE_JOURNAL_KEY); } catch (cleanupError) { rollbackError = cleanupError; }
+    }
+    persistenceWarning = rollbackError
+      ? `Falha ao salvar e ao restaurar completamente o estado anterior. Preserve os dados locais e não repita a operação. Erro: ${rollbackError.message || "armazenamento indisponível"}`
+      : `A gravação falhou; o estado anterior foi restaurado. A operação não foi concluída. Erro: ${error.message || "armazenamento indisponível"}`;
+    throw new Error(persistenceWarning);
+  }
+}
+
+function validatePersistencePayload(payload) {
+  const parseJsonArray = (key) => {
+    const parsed = JSON.parse(payload[key]);
+    if (!Array.isArray(parsed)) throw new Error(`Dados inválidos em ${key}: era esperado um array.`);
+    if (parsed.some((item) => !item || typeof item !== "object" || Array.isArray(item))) {
+      throw new Error(`Dados inválidos em ${key}: há itens que não são objetos.`);
+    }
+    return parsed;
+  };
+  const storedRecords = parseJsonArray(STORAGE_KEY);
+  const storedTrash = parseJsonArray(TRASH_KEY);
+  const storedReports = parseJsonArray(FINANCIAL_REPORTS_KEY);
+  const counters = JSON.parse(payload[RECEIPT_COUNTER_KEY]);
+  const snapshots = payload[SNAPSHOT_KEY] ? JSON.parse(payload[SNAPSHOT_KEY]) : [];
+  if (!counters || typeof counters !== "object" || Array.isArray(counters)) throw new Error("Contador de recibos inválido.");
+  if (!Array.isArray(snapshots)) throw new Error("Snapshots inválidos.");
+  if (!Number.isFinite(parseMoney(payload[GOAL_KEY]))) throw new Error("Meta mensal inválida.");
+  [...storedRecords, ...storedTrash].forEach((record) => {
+    if (!record.id || !Array.isArray(record.paymentHistory) || !Array.isArray(record.financialHistory)) {
+      throw new Error("Há um cadastro sem identificador ou com histórico inválido.");
+    }
+  });
+  storedReports.forEach((report) => {
+    if (!report.id && (report.year === undefined || report.month === undefined)) throw new Error("Há um relatório sem identificador de competência.");
+  });
 }
 
 function applyImportantChange(reason, mutate) {
-  pushSnapshot(reason);
-  mutate();
-  persistData();
-  render();
+  if (!persistenceReady || storageLoadError) {
+    toast(persistenceWarning || "Armazenamento indisponível. Nenhuma alteração foi salva.");
+    return false;
+  }
+  const previousState = captureState();
+  const previousSnapshots = getSnapshots();
+  try {
+    pushSnapshot(reason, previousState);
+    mutate();
+    persistData();
+    render();
+    return true;
+  } catch (error) {
+    records = migrateArray(previousState.records);
+    trash = migrateArray(previousState.trash);
+    monthlyGoal = parseMoney(previousState.monthlyGoal);
+    receiptCounters = cloneData(previousState.receiptCounters || {});
+    financialReports = cloneData(previousState.financialReports || []);
+    try { setSnapshots(previousSnapshots); } catch { /* mantém o diário para recuperação no próximo carregamento */ }
+    render();
+    toast(error.message || "Não foi possível salvar. A alteração foi desfeita.");
+    return false;
+  }
 }
 
 function toast(message) {
@@ -741,7 +942,7 @@ function recordFromForm() {
   if (!value && planValues[selectedPlan]) value = planValues[selectedPlan];
   const existing = records.find((record) => record.id === $("recordId").value);
 
-  return normalizeRecord({
+  const normalized = normalizeRecord({
     id: $("recordId").value || uid(),
     name: $("name").value,
     company: $("company").value,
@@ -752,6 +953,8 @@ function recordFromForm() {
     value,
     status: $("status").value,
     paymentType: $("paymentType").value,
+    installment1Percent: Number($("installment1Percent").value),
+    installment2Percent: Number($("installment2Percent").value),
     firstContactDate: $("firstContactDate").value,
     startDate: $("startDate").value,
     dueDate: $("dueDate").value,
@@ -772,6 +975,9 @@ function recordFromForm() {
     financialStatus: existing?.financialStatus || "",
     canceledAt: existing?.canceledAt || null
   });
+  normalized.installment1Percent = Number($("installment1Percent").value);
+  normalized.installment2Percent = Number($("installment2Percent").value);
+  return normalized;
 }
 
 function duplicateMatch(record, collection = records, excludeId = "") {
@@ -817,6 +1023,14 @@ function validateRecord(record) {
   }
   if (!COMMERCIAL_STAGES.includes(record.commercialStage)) {
     return "Selecione a etapa comercial.";
+  }
+  if (record.paymentType === "2x") {
+    const firstPercent = Number(record.installment1Percent);
+    const secondPercent = Number(record.installment2Percent);
+    if (!Number.isInteger(firstPercent) || !Number.isInteger(secondPercent)
+      || firstPercent < 1 || secondPercent < 1 || firstPercent + secondPercent !== 100) {
+      return "As porcentagens das parcelas devem ser números inteiros positivos cuja soma seja exatamente 100% (ex.: 60% + 40%).";
+    }
   }
   if (record.commercialStage === "Perdido" && !record.lossReason) {
     return "Informe o motivo da perda.";
@@ -903,11 +1117,11 @@ function upsertRecord(record) {
     addCommercialHistory(record, "Cadastro criado", `Cadastro incluído na etapa ${record.commercialStage}.`);
   }
 
-  applyImportantChange(reason, () => {
+  if (!applyImportantChange(reason, () => {
     record.financialStatus = getFinancialStatus(record);
     if (index >= 0) records[index] = record;
     else records.unshift(record);
-  });
+  })) return;
   clearForm();
   toast("Cadastro salvo com segurança.");
 }
@@ -917,6 +1131,8 @@ function clearForm() {
   $("recordId").value = "";
   $("status").value = "Lead";
   $("paymentType").value = "1x";
+  $("installment1Percent").value = "60";
+  $("installment2Percent").value = "40";
   $("leadTemperature").value = "Morno";
   $("commercialStage").value = "Novo lead";
   $("dueDate2Wrap").classList.add("hidden");
@@ -936,6 +1152,8 @@ function fillForm(record) {
   $("value").value = record.value ? String(record.value).replace(".", ",") : "";
   $("status").value = record.status || "Lead";
   $("paymentType").value = record.paymentType || "1x";
+  $("installment1Percent").value = String(record.installment1Percent ?? 60);
+  $("installment2Percent").value = String(record.installment2Percent ?? 40);
   $("firstContactDate").value = record.firstContactDate || "";
   $("startDate").value = record.startDate || "";
   $("dueDate").value = record.dueDate || "";
@@ -958,11 +1176,11 @@ function deleteRecord(id) {
   if (!record) return;
   if (!window.confirm(`Mover "${record.name}" para a lixeira?`)) return;
 
-  applyImportantChange(`Antes de mover ${record.name} para a lixeira`, () => {
+  if (!applyImportantChange(`Antes de mover ${record.name} para a lixeira`, () => {
     trash.unshift({ ...record, deletedAt: new Date().toISOString() });
     trash = trash.slice(0, 20);
     records = records.filter((item) => item.id !== id);
-  });
+  })) return;
   toast("Cadastro movido para a lixeira.");
 }
 
@@ -975,10 +1193,10 @@ function restoreFromTrash(id) {
     return;
   }
 
-  applyImportantChange(`Antes de restaurar ${record.name} da lixeira`, () => {
+  if (!applyImportantChange(`Antes de restaurar ${record.name} da lixeira`, () => {
     records.unshift(normalizeRecord({ ...record, deletedAt: null }));
     trash = trash.filter((item) => item.id !== id);
-  });
+  })) return;
   toast("Cadastro restaurado.");
 }
 
@@ -989,9 +1207,9 @@ function clearTrash() {
   }
   if (!window.confirm("Esvaziar a lixeira definitivamente? Uma versão anterior será criada antes.")) return;
 
-  applyImportantChange("Antes de esvaziar a lixeira", () => {
+  if (!applyImportantChange("Antes de esvaziar a lixeira", () => {
     trash = [];
-  });
+  })) return;
   toast("Lixeira esvaziada.");
 }
 
@@ -999,7 +1217,7 @@ function markAsClient(id) {
   const record = records.find((item) => item.id === id);
   if (!record) return;
 
-  applyImportantChange(`Antes de converter ${record.name} em cliente`, () => {
+  if (!applyImportantChange(`Antes de converter ${record.name} em cliente`, () => {
     const previousStage = record.commercialStage;
     record.status = "Ativo";
     record.commercialStage = "Fechado";
@@ -1011,7 +1229,7 @@ function markAsClient(id) {
       "Lead convertido em cliente",
       `Lead convertido em cliente ativo; etapa alterada de ${previousStage} para Fechado.`
     );
-  });
+  })) return;
   toast("Lead convertido em cliente ativo.");
 }
 
@@ -1027,7 +1245,7 @@ function moveCommercialStage(id, direction) {
     return;
   }
 
-  applyImportantChange(`Antes de alterar a etapa de ${record.name}`, () => {
+  if (!applyImportantChange(`Antes de alterar a etapa de ${record.name}`, () => {
     const previousStage = record.commercialStage;
     record.commercialStage = nextStage;
     if (nextStage !== "Perdido") record.lossReason = "";
@@ -1036,7 +1254,7 @@ function moveCommercialStage(id, direction) {
       "Mudança de etapa",
       `Etapa alterada de ${previousStage} para ${nextStage}.`
     );
-  });
+  })) return;
   toast(`Etapa alterada para ${nextStage}.`);
 }
 
@@ -1052,7 +1270,7 @@ function openLossDialog(id) {
 function markAsLost(id, reason) {
   const record = records.find((item) => item.id === id);
   if (!record) return;
-  applyImportantChange(`Antes de marcar ${record.name} como perdido`, () => {
+  if (!applyImportantChange(`Antes de marcar ${record.name} como perdido`, () => {
     const previousStage = record.commercialStage;
     record.commercialStage = "Perdido";
     record.lossReason = reason;
@@ -1061,7 +1279,7 @@ function markAsLost(id, reason) {
       "Lead marcado como perdido",
       `Etapa alterada de ${previousStage} para Perdido. Motivo: ${reason}.`
     );
-  });
+  })) return;
   if ($("lossDialog").open) $("lossDialog").close();
   toast("Lead marcado como perdido.");
 }
@@ -1099,13 +1317,13 @@ async function copyFollowUp(id) {
     toast("Não foi possível copiar a mensagem.");
     return;
   }
-  applyImportantChange(`Antes de registrar follow-up de ${record.name}`, () => {
+  if (!applyImportantChange(`Antes de registrar follow-up de ${record.name}`, () => {
     addCommercialHistory(
       record,
       "Follow-up copiado",
       `Mensagem de follow-up da etapa ${record.commercialStage} copiada.`
     );
-  });
+  })) return;
   toast("Mensagem de follow-up copiada.");
 }
 
@@ -1163,7 +1381,7 @@ async function copyCollectionMessage(recordId, receivableId) {
     toast("Não foi possível copiar a mensagem de cobrança.");
     return;
   }
-  applyImportantChange(`Antes de registrar mensagem de cobrança de ${record.name}`, () => {
+  if (!applyImportantChange(`Antes de registrar mensagem de cobrança de ${record.name}`, () => {
     addFinancialHistory(
       record,
       "Mensagem de cobrança copiada",
@@ -1171,7 +1389,7 @@ async function copyCollectionMessage(recordId, receivableId) {
       receivable?.remainingAmount || 0,
       { messageType, receivableId: receivable?.id || "", channel: "Cópia" }
     );
-  });
+  })) return;
   toast("Mensagem de cobrança copiada.");
 }
 
@@ -1261,7 +1479,7 @@ function registerPayment(id, installment, details) {
     paymentStatus: isPartial ? "Parcial" : "Quitado"
   }, record.id);
 
-  applyImportantChange(`Antes de registrar pagamento de ${record.name}`, () => {
+  if (!applyImportantChange(`Antes de registrar pagamento de ${record.name}`, () => {
     record.lastPaidDate = details.paidAt;
     record.paymentHistory = record.paymentHistory || [];
     record.paymentHistory.unshift(payment);
@@ -1304,7 +1522,7 @@ function registerPayment(id, installment, details) {
       record.dueDate2 = addOneMonth(record.dueDate2 || details.paidAt);
     }
     record.financialStatus = getFinancialStatus(record);
-  });
+  })) return;
 
   if ($("paymentDialog").open) $("paymentDialog").close();
   toast(
@@ -1651,9 +1869,9 @@ function exportMonthlyFinancialReport() {
       receiptNumber: payment.receiptNumber
     }))
   };
-  applyImportantChange("Antes de registrar exportação do relatório financeiro", () => {
+  if (!applyImportantChange("Antes de registrar exportação do relatório financeiro", () => {
     financialReports = mergeFinancialReports([reportSnapshot], financialReports);
-  });
+  })) return;
   const blob = new Blob([buildPrintableFinancialReport(report)], { type: "text/html;charset=utf-8" });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
@@ -1869,14 +2087,14 @@ function generateReceipt(recordId, paymentId) {
   const { record, payment } = findPayment(recordId, paymentId);
   if (!record || !payment) return;
   let receiptData;
-  applyImportantChange(`Antes de gerar recibo para ${record.name}`, () => {
+  if (!applyImportantChange(`Antes de gerar recibo para ${record.name}`, () => {
     receiptData = ensureReceipt(record, payment);
     addFinancialHistory(
       record,
       "Recibo gerado",
       `${receiptData.receiptNumber} • ${formatMoney(payment.amount)} • ${payment.paymentMethod} • ${payment.referencePeriod}.`
     );
-  });
+  })) return;
   downloadReceiptBlob(receiptData);
   showHistory(recordId);
   toast(`Recibo ${receiptData.receiptNumber} gerado em PDF.`);
@@ -2186,13 +2404,20 @@ function closeImportDialog() {
 
 function performImport(mode) {
   if (!pendingImport) return;
+  if (!persistenceReady || storageLoadError) {
+    toast(persistenceWarning || "Armazenamento indisponível. A importação não foi aplicada.");
+    return;
+  }
   const { backup } = pendingImport;
   if (
     mode === "replace"
     && !window.confirm("Substituir todos os dados atuais pelo backup? Uma versão do estado atual será salva antes.")
   ) return;
 
+  const previousState = captureState();
+  const previousSnapshots = getSnapshots();
   const stats = { imported: 0, ignored: 0, merged: 0 };
+  try {
   const safetySnapshot = pushSnapshot(
     mode === "replace" ? "Antes de substituir os dados por um backup" : "Antes de mesclar um backup"
   );
@@ -2220,6 +2445,16 @@ function performImport(mode) {
   render();
   closeImportDialog();
   toast(`Importação concluída: ${stats.imported} importado(s), ${stats.ignored} ignorado(s) e ${stats.merged} mesclado(s).`);
+  } catch (error) {
+    records = migrateArray(previousState.records);
+    trash = migrateArray(previousState.trash);
+    monthlyGoal = parseMoney(previousState.monthlyGoal);
+    receiptCounters = cloneData(previousState.receiptCounters || {});
+    financialReports = cloneData(previousState.financialReports || []);
+    try { setSnapshots(previousSnapshots); } catch { /* diário permanece para recuperação na inicialização */ }
+    render();
+    toast(error.message || "A importação falhou e os dados anteriores foram restaurados.");
+  }
 }
 
 function restoreSnapshot(id) {
@@ -2230,7 +2465,13 @@ function restoreSnapshot(id) {
   }
   const date = formatDateTime(target.createdAt);
   if (!window.confirm(`Restaurar a versão de ${date}?\nMotivo: ${target.reason}`)) return;
-
+  if (!persistenceReady || storageLoadError) {
+    toast(persistenceWarning || "Armazenamento indisponível. A restauração não foi aplicada.");
+    return;
+  }
+  const previousState = captureState();
+  const previousSnapshots = getSnapshots();
+  try {
   pushSnapshot(`Antes de restaurar a versão de ${date}`);
   records = migrateArray(target.data.records);
   trash = migrateArray(target.data.trash);
@@ -2242,6 +2483,16 @@ function restoreSnapshot(id) {
   render();
   if ($("snapshotsDialog").open) $("snapshotsDialog").close();
   toast("Versão anterior restaurada com sucesso.");
+  } catch (error) {
+    records = migrateArray(previousState.records);
+    trash = migrateArray(previousState.trash);
+    monthlyGoal = parseMoney(previousState.monthlyGoal);
+    receiptCounters = cloneData(previousState.receiptCounters || {});
+    financialReports = cloneData(previousState.financialReports || []);
+    try { setSnapshots(previousSnapshots); } catch { /* diário permanece para recuperação na inicialização */ }
+    render();
+    toast(error.message || "A restauração falhou e os dados anteriores foram restaurados.");
+  }
 }
 
 function loadGoal() {
@@ -2254,15 +2505,19 @@ function saveGoal() {
     toast("A meta mensal já está atualizada.");
     return;
   }
-  applyImportantChange("Antes de alterar a meta mensal", () => {
+  if (!applyImportantChange("Antes de alterar a meta mensal", () => {
     monthlyGoal = nextGoal;
-  });
+  })) return;
   loadGoal();
   toast("Meta mensal salva.");
 }
 
 function toggleDue2() {
-  $("dueDate2Wrap").classList.toggle("hidden", $("paymentType").value !== "2x");
+  const splitPayment = $("paymentType").value === "2x";
+  $("dueDate2Wrap").classList.toggle("hidden", !splitPayment);
+  $("installment1PercentWrap").classList.toggle("hidden", !splitPayment);
+  $("installment2PercentWrap").classList.toggle("hidden", !splitPayment);
+  $("installmentPercentHint").classList.toggle("hidden", !splitPayment);
 }
 
 function toggleLossReason() {
@@ -2556,7 +2811,7 @@ function renderTable() {
     const row = document.createElement("tr");
     if (overdue) row.classList.add("row-overdue");
     const paymentText = record.paymentType === "2x"
-      ? `2x (${formatMoney(Math.round((record.value * 0.60) * 100) / 100)} + ${formatMoney(Math.round((record.value * 0.40) * 100) / 100)})`
+      ? `2x ${record.installment1Percent}% + ${record.installment2Percent}% (${formatMoney(expectedInstallmentAmount(record, 1))} + ${formatMoney(expectedInstallmentAmount(record, 2))})`
       : "Mensal / 1x";
     const dueText = record.paymentType === "2x"
       ? `1ª: ${formatDate(record.dueDate)}<br>2ª: ${formatDate(record.dueDate2)}`
@@ -2971,9 +3226,9 @@ function importLeadFromUrl() {
     }
 
     addCommercialHistory(lead, "Cadastro criado", "Lead importado automaticamente pela URL.");
-    applyImportantChange(`Antes de importar o lead ${lead.name} pela URL`, () => {
+    if (!applyImportantChange(`Antes de importar o lead ${lead.name} pela URL`, () => {
       records.unshift(lead);
-    });
+    })) return;
     window.history.replaceState({}, document.title, window.location.pathname);
     setActiveTab("pipeline");
     window.alert("Lead importado automaticamente no CRM.");
@@ -2983,9 +3238,14 @@ function importLeadFromUrl() {
   }
 }
 
-persistData();
+try {
+  persistData();
+} catch (error) {
+  persistenceWarning = error.message || "Não foi possível verificar a gravação inicial dos dados.";
+}
 loadGoal();
 toggleDue2();
 toggleLossReason();
 render();
 importLeadFromUrl();
+if (persistenceWarning) toast(persistenceWarning);
